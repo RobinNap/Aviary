@@ -12,7 +12,10 @@ import SwiftData
 struct AviaryApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            FavoriteAirport.self,
+            RecentAirport.self,
+            ATCFeed.self,
+            FlightCacheEntry.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
@@ -28,5 +31,9 @@ struct AviaryApp: App {
             ContentView()
         }
         .modelContainer(sharedModelContainer)
+        #if os(macOS)
+        .windowStyle(.automatic)
+        .defaultSize(width: 1000, height: 700)
+        #endif
     }
 }
