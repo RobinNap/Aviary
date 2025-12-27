@@ -16,10 +16,32 @@ final class AudioPlayer: ObservableObject {
     
     @Published private(set) var isPlaying = false
     @Published private(set) var isBuffering = false
+    @Published private(set) var isConnecting = false
     @Published private(set) var currentFeed: ATCFeed?
+    @Published private(set) var currentLiveFeed: LiveATCFeed?
     @Published private(set) var error: Error?
     @Published private(set) var volume: Float = 1.0
     @Published private(set) var statusMessage: String?
+    
+    /// Whether the player is loading (connecting or buffering)
+    var isLoading: Bool {
+        isConnecting || isBuffering
+    }
+    
+    /// The name of the currently playing feed (works for both ATCFeed and LiveATCFeed)
+    var currentFeedName: String? {
+        currentFeed?.name ?? currentLiveFeed?.name
+    }
+    
+    /// The feed type of the currently playing feed
+    var currentFeedType: ATCFeedType? {
+        currentFeed?.feedType ?? currentLiveFeed?.feedType
+    }
+    
+    /// Whether any feed is currently loaded (playing or paused)
+    var hasFeedLoaded: Bool {
+        currentFeed != nil || currentLiveFeed != nil
+    }
     
     private var player: AVPlayer?
     private var playerItem: AVPlayerItem?
@@ -48,9 +70,11 @@ final class AudioPlayer: ObservableObject {
         stop()
         
         currentFeed = feed
-        isBuffering = true
+        currentLiveFeed = nil
+        isConnecting = true
+        isBuffering = false
         error = nil
-        statusMessage = "Connecting to \(url.host ?? "stream")..."
+        statusMessage = "Connecting..."
         
         // Create the player item
         // For HTTP Icecast streams, we need to handle them carefully
@@ -118,12 +142,94 @@ final class AudioPlayer: ObservableObject {
             }
         }
         
-        // Start playback
+        // Start playback - isPlaying will be set to true when timeControlStatus changes to .playing
         player?.play()
-        isPlaying = true
         
         // Update last played timestamp
         feed.lastPlayedAt = Date()
+    }
+    
+    /// Play a LiveATC feed directly without saving
+    func play(liveFeed: LiveATCFeed) {
+        let url = liveFeed.streamURL
+        
+        print("AudioPlayer: Attempting to play LiveATC feed: \(url.absoluteString)")
+        
+        // Stop current playback
+        stop()
+        
+        currentLiveFeed = liveFeed
+        currentFeed = nil
+        isConnecting = true
+        isBuffering = false
+        error = nil
+        statusMessage = "Connecting..."
+        
+        // Create the player item
+        let asset = AVURLAsset(url: url, options: [
+            "AVURLAssetHTTPHeaderFieldsKey": [
+                "User-Agent": "AVPlayer/1.0 Aviary",
+                "Accept": "*/*",
+                "Icy-MetaData": "1"
+            ]
+        ])
+        
+        playerItem = AVPlayerItem(asset: asset)
+        playerItem?.preferredForwardBufferDuration = 1
+        playerItem?.canUseNetworkResourcesForLiveStreamingWhilePaused = false
+        
+        player = AVPlayer(playerItem: playerItem)
+        player?.volume = volume
+        player?.automaticallyWaitsToMinimizeStalling = false
+        
+        // Observe player item status
+        statusObserver = playerItem?.observe(\.status, options: [.new, .initial]) { [weak self] item, _ in
+            Task { @MainActor [weak self] in
+                self?.handleStatusChange(item.status)
+            }
+        }
+        
+        // Observe buffering state
+        bufferObserver = playerItem?.observe(\.isPlaybackLikelyToKeepUp, options: [.new]) { [weak self] item, _ in
+            Task { @MainActor [weak self] in
+                if item.isPlaybackLikelyToKeepUp {
+                    self?.isBuffering = false
+                    self?.statusMessage = "Live"
+                }
+            }
+        }
+        
+        // Observe player item error
+        errorObserver = playerItem?.observe(\.error, options: [.new]) { [weak self] item, _ in
+            Task { @MainActor [weak self] in
+                if let error = item.error {
+                    self?.handleError(error)
+                }
+            }
+        }
+        
+        // Observe player time control status
+        timeControlObserver = player?.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
+            Task { @MainActor [weak self] in
+                self?.handleTimeControlChange(player.timeControlStatus)
+            }
+        }
+        
+        // Observe for errors via notification
+        NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemFailedToPlayToEndTime,
+            object: playerItem,
+            queue: .main
+        ) { [weak self] notification in
+            if let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error {
+                Task { @MainActor [weak self] in
+                    self?.handleError(error)
+                }
+            }
+        }
+        
+        // Start playback - isPlaying will be set to true when timeControlStatus changes to .playing
+        player?.play()
     }
     
     /// Play directly from a URL (for testing)
@@ -132,7 +238,8 @@ final class AudioPlayer: ObservableObject {
         
         stop()
         
-        isBuffering = true
+        isConnecting = true
+        isBuffering = false
         error = nil
         statusMessage = "Connecting..."
         
@@ -166,7 +273,6 @@ final class AudioPlayer: ObservableObject {
         }
         
         player?.play()
-        isPlaying = true
     }
     
     /// Pause playback
@@ -216,7 +322,9 @@ final class AudioPlayer: ObservableObject {
         
         isPlaying = false
         isBuffering = false
+        isConnecting = false
         currentFeed = nil
+        currentLiveFeed = nil
         error = nil
         statusMessage = nil
     }
@@ -244,12 +352,22 @@ final class AudioPlayer: ObservableObject {
     private func handleStatusChange(_ status: AVPlayerItem.Status) {
         switch status {
         case .readyToPlay:
-            isBuffering = false
-            statusMessage = "Live"
             print("AudioPlayer: Ready to play - stream connected successfully")
+            isConnecting = false
+            // Ensure playback starts when stream is ready
+            if hasFeedLoaded {
+                player?.play()
+                // Check if player is already playing (timeControlStatus might have fired first)
+                if player?.timeControlStatus == .playing {
+                    isBuffering = false
+                    isPlaying = true
+                    statusMessage = "Live"
+                }
+            }
         case .failed:
             isPlaying = false
             isBuffering = false
+            isConnecting = false
             let playerError = playerItem?.error
             error = playerError ?? AudioPlayerError.playbackFailed
             
@@ -274,13 +392,31 @@ final class AudioPlayer: ObservableObject {
     private func handleTimeControlChange(_ status: AVPlayer.TimeControlStatus) {
         switch status {
         case .paused:
-            if isPlaying {
-                // Player paused unexpectedly (buffering?)
-                print("AudioPlayer: Playback paused unexpectedly")
+            // Check if we intended to be playing - if so, this is unexpected
+            if hasFeedLoaded && isPlaying {
+                print("AudioPlayer: Playback paused unexpectedly, attempting to resume...")
+                // Check if the player item is ready and we should resume
+                if playerItem?.status == .readyToPlay {
+                    // Small delay to avoid rapid play/pause cycles
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                        if self.hasFeedLoaded && self.playerItem?.status == .readyToPlay {
+                            self.player?.play()
+                            print("AudioPlayer: Resumed playback")
+                        }
+                    }
+                }
+            } else if !hasFeedLoaded {
+                isPlaying = false
             }
         case .waitingToPlayAtSpecifiedRate:
-            isBuffering = true
-            statusMessage = "Buffering..."
+            // If we're past the initial connection, this is buffering
+            if !isConnecting {
+                isBuffering = true
+                statusMessage = "Buffering..."
+            } else {
+                statusMessage = "Connecting..."
+            }
             print("AudioPlayer: Waiting/Buffering")
             
             // Log the reason for waiting
@@ -288,10 +424,16 @@ final class AudioPlayer: ObservableObject {
                 print("AudioPlayer: Waiting reason: \(reason.rawValue)")
             }
         case .playing:
-            isBuffering = false
-            isPlaying = true
-            statusMessage = "Live"
-            print("AudioPlayer: Now playing")
+            // Only transition to playing state if we've received readyToPlay status
+            // This prevents premature "Live" state during initial connection
+            if !isConnecting {
+                isBuffering = false
+                isPlaying = true
+                statusMessage = "Live"
+                print("AudioPlayer: Now playing audio")
+            } else {
+                print("AudioPlayer: TimeControl says playing but still connecting, waiting for readyToPlay...")
+            }
         @unknown default:
             break
         }

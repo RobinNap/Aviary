@@ -45,12 +45,18 @@ struct RootSplitView: View {
                 }
             }
             
-            // Mini Player overlay
-            if audioPlayer.currentFeed != nil {
-                MiniPlayerView()
-                    .padding(.bottom, 8)
+            // ATC Player overlay - shows when airport is selected, centered at bottom
+            if let airport = selectedAirport {
+                HStack {
+                    Spacer()
+                    AirportATCPlayerView(airport: airport)
+                    Spacer()
+                }
+                .padding(.bottom, 8)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .animation(.easeInOut(duration: 0.3), value: selectedAirport)
     }
     
     private func addToRecents(_ airport: Airport) {

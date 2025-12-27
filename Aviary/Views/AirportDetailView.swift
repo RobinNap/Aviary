@@ -9,7 +9,7 @@ import SwiftUI
 import SwiftData
 import MapKit
 
-/// Detail view showing airport information, flights, and ATC feeds
+/// Detail view showing airport information and flights
 struct AirportDetailView: View {
     let airport: Airport
     
@@ -45,8 +45,6 @@ struct AirportDetailView: View {
                     ArrivalsView(airport: airport)
                 case .departures:
                     DeparturesView(airport: airport)
-                case .atc:
-                    ATCFeedsView(airport: airport)
                 }
             }
             .frame(maxHeight: .infinity)
@@ -96,7 +94,6 @@ struct AirportDetailView: View {
 enum AirportTab: String, CaseIterable, Identifiable {
     case arrivals
     case departures
-    case atc
     
     var id: String { rawValue }
     
@@ -104,7 +101,6 @@ enum AirportTab: String, CaseIterable, Identifiable {
         switch self {
         case .arrivals: return "Arrivals"
         case .departures: return "Departures"
-        case .atc: return "ATC"
         }
     }
     
@@ -112,7 +108,6 @@ enum AirportTab: String, CaseIterable, Identifiable {
         switch self {
         case .arrivals: return "airplane.arrival"
         case .departures: return "airplane.departure"
-        case .atc: return "headphones"
         }
     }
 }
