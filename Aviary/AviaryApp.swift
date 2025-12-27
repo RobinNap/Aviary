@@ -12,8 +12,6 @@ import SwiftData
 struct AviaryApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            FavoriteAirport.self,
-            RecentAirport.self,
             ATCFeed.self,
             FlightCacheEntry.self,
         ])

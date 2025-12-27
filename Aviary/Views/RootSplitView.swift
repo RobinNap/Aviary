@@ -8,165 +8,122 @@
 import SwiftUI
 import SwiftData
 
-/// The main navigation structure of the app using NavigationSplitView
+/// The main navigation structure of the app
 struct RootSplitView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query(sort: \FavoriteAirport.addedAt, order: .reverse) private var favorites: [FavoriteAirport]
-    @Query(sort: \RecentAirport.visitedAt, order: .reverse) private var recents: [RecentAirport]
     @StateObject private var audioPlayer = AudioPlayer.shared
+    @StateObject private var airportCatalog = AirportCatalog.shared
     
     @State private var selectedAirport: Airport?
     @State private var searchText = ""
-    @State private var isSearching = false
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     
     var body: some View {
-        ZStack(alignment: .bottom) {
-            NavigationSplitView(columnVisibility: $columnVisibility) {
-                SidebarView(
-                    selectedAirport: $selectedAirport,
-                    searchText: $searchText,
-                    isSearching: $isSearching
-                )
-                .navigationTitle("Aviary")
-                #if os(macOS)
-                .navigationSplitViewColumnWidth(min: 220, ideal: 260)
-                #endif
-            } detail: {
+        NavigationStack {
+            ZStack {
+                VStack(spacing: 0) {
+                    if selectedAirport == nil {
+                        // Search and results view
+                        SearchView(
+                            searchText: $searchText,
+                            selectedAirport: $selectedAirport,
+                            airportCatalog: airportCatalog
+                        )
+                    } else if let airport = selectedAirport {
+                        // Airport detail with back navigation
+                        AirportDetailView(airport: airport)
+                    }
+                }
+                
+                // ATC Player overlay - shows when airport is selected
                 if let airport = selectedAirport {
-                    AirportDetailView(airport: airport)
-                } else {
-                    WelcomeView()
+                    VStack {
+                        Spacer()
+                        AirportATCPlayerView(airport: airport)
+                            .padding(.bottom, 8)
+                    }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            .onChange(of: selectedAirport) { _, newAirport in
-                if let airport = newAirport {
-                    addToRecents(airport)
+            .navigationTitle(selectedAirport?.shortCode ?? "Aviary")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                if selectedAirport != nil {
+                    ToolbarItem(placement: .navigation) {
+                        Button {
+                            withAnimation {
+                                selectedAirport = nil
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.left")
+                                Text("Search")
+                            }
+                        }
+                    }
                 }
-            }
-            
-            // ATC Player overlay - shows when airport is selected, centered at bottom
-            if let airport = selectedAirport {
-                HStack {
-                    Spacer()
-                    AirportATCPlayerView(airport: airport)
-                    Spacer()
-                }
-                .padding(.bottom, 8)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .animation(.easeInOut(duration: 0.3), value: selectedAirport)
     }
-    
-    private func addToRecents(_ airport: Airport) {
-        // Check if already in recents
-        if let existing = recents.first(where: { $0.icao == airport.icao }) {
-            existing.visitedAt = Date()
-        } else {
-            let recent = RecentAirport(
-                icao: airport.icao,
-                iata: airport.iata,
-                name: airport.name,
-                city: airport.city,
-                country: airport.country,
-                latitude: airport.latitude,
-                longitude: airport.longitude
-            )
-            modelContext.insert(recent)
-            
-            // Keep only last 10 recents
-            if recents.count > 10 {
-                let toDelete = recents.suffix(from: 10)
-                for item in toDelete {
-                    modelContext.delete(item)
-                }
-            }
-        }
-    }
 }
 
-// MARK: - Sidebar View
-struct SidebarView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query(sort: \FavoriteAirport.addedAt, order: .reverse) private var favorites: [FavoriteAirport]
-    @Query(sort: \RecentAirport.visitedAt, order: .reverse) private var recents: [RecentAirport]
-    
-    @Binding var selectedAirport: Airport?
+// MARK: - Search View
+struct SearchView: View {
     @Binding var searchText: String
-    @Binding var isSearching: Bool
-    
-    @StateObject private var airportCatalog = AirportCatalog.shared
+    @Binding var selectedAirport: Airport?
+    @ObservedObject var airportCatalog: AirportCatalog
     
     var body: some View {
-        List(selection: $selectedAirport) {
-            // Search Section
-            if !searchText.isEmpty {
-                Section("Search Results") {
-                    if airportCatalog.searchResults.isEmpty {
-                        ContentUnavailableView.search(text: searchText)
-                    } else {
-                        ForEach(airportCatalog.searchResults) { airport in
-                            AirportRowView(airport: airport)
-                                .tag(airport)
-                        }
+        Group {
+            if searchText.isEmpty {
+                // Full-window empty state
+                VStack(spacing: 24) {
+                    Spacer()
+                    
+                    Image(systemName: "airplane.circle.fill")
+                        .font(.system(size: 80))
+                        .foregroundStyle(.tint)
+                    
+                    VStack(spacing: 8) {
+                        Text("Search Airports")
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                        
+                        Text("Search for an airport by name, city, or ICAO/IATA code to view arrivals, departures, and listen to ATC.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 40)
                     }
+                    
+                    Spacer()
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if airportCatalog.searchResults.isEmpty {
+                // Full-window no results state
+                ContentUnavailableView.search(text: searchText)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                // Favorites Section
-                Section("Favorites") {
-                    if favorites.isEmpty {
-                        Text("No favorites yet")
-                            .foregroundStyle(.secondary)
-                            .font(.subheadline)
-                    } else {
-                        ForEach(favorites) { favorite in
-                            AirportRowView(airport: favorite.toAirport())
-                                .tag(favorite.toAirport())
-                                .swipeActions(edge: .trailing) {
-                                    Button(role: .destructive) {
-                                        modelContext.delete(favorite)
-                                    } label: {
-                                        Label("Remove", systemImage: "trash")
-                                    }
-                                }
+                // Search results list
+                List {
+                    ForEach(airportCatalog.searchResults) { airport in
+                        Button {
+                            withAnimation {
+                                selectedAirport = airport
+                            }
+                        } label: {
+                            AirportRowView(airport: airport)
                         }
+                        .buttonStyle(.plain)
                     }
                 }
-                
-                // Recents Section
-                Section("Recent") {
-                    if recents.isEmpty {
-                        Text("No recent airports")
-                            .foregroundStyle(.secondary)
-                            .font(.subheadline)
-                    } else {
-                        ForEach(recents.prefix(10)) { recent in
-                            AirportRowView(airport: recent.toAirport())
-                                .tag(recent.toAirport())
-                        }
-                    }
-                }
+                .listStyle(.plain)
             }
         }
         .searchable(text: $searchText, prompt: "Search airports...")
         .onChange(of: searchText) { _, newValue in
             airportCatalog.search(query: newValue)
-        }
-        .toolbar {
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Menu {
-                    Button {
-                        // Refresh action
-                    } label: {
-                        Label("Refresh", systemImage: "arrow.clockwise")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-            }
-            #endif
         }
     }
 }
@@ -204,23 +161,7 @@ struct AirportRowView: View {
     }
 }
 
-// MARK: - Welcome View
-struct WelcomeView: View {
-    var body: some View {
-        ContentUnavailableView {
-            Label("Welcome to Aviary", systemImage: "airplane.circle.fill")
-        } description: {
-            Text("Search for an airport or select one from your favorites to view arrivals, departures, and listen to ATC.")
-        } actions: {
-            Text("Use the search bar to find airports by name, city, or code")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-}
-
 #Preview {
     RootSplitView()
-        .modelContainer(for: [FavoriteAirport.self, RecentAirport.self, ATCFeed.self], inMemory: true)
+        .modelContainer(for: [ATCFeed.self, FlightCacheEntry.self], inMemory: true)
 }
-

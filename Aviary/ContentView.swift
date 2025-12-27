@@ -16,5 +16,5 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
-        .modelContainer(for: [FavoriteAirport.self, RecentAirport.self, ATCFeed.self, FlightCacheEntry.self], inMemory: true)
+        .modelContainer(for: [ATCFeed.self, FlightCacheEntry.self], inMemory: true)
 }

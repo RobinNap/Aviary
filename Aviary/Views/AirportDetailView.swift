@@ -13,14 +13,7 @@ import MapKit
 struct AirportDetailView: View {
     let airport: Airport
     
-    @Environment(\.modelContext) private var modelContext
-    @Query private var favorites: [FavoriteAirport]
-    
     @State private var selectedTab: AirportTab = .arrivals
-    
-    private var isFavorite: Bool {
-        favorites.contains { $0.icao == airport.icao }
-    }
     
     var body: some View {
         VStack(spacing: 0) {
@@ -48,44 +41,6 @@ struct AirportDetailView: View {
                 }
             }
             .frame(maxHeight: .infinity)
-        }
-        .navigationTitle(airport.shortCode)
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    toggleFavorite()
-                } label: {
-                    Image(systemName: isFavorite ? "star.fill" : "star")
-                        .foregroundStyle(isFavorite ? .yellow : .secondary)
-                }
-                .accessibilityLabel(isFavorite ? "Remove from favorites" : "Add to favorites")
-            }
-            
-            ToolbarItem(placement: .secondaryAction) {
-                ShareLink(item: airport.name) {
-                    Label("Share", systemImage: "square.and.arrow.up")
-                }
-            }
-        }
-    }
-    
-    private func toggleFavorite() {
-        if let existing = favorites.first(where: { $0.icao == airport.icao }) {
-            modelContext.delete(existing)
-        } else {
-            let favorite = FavoriteAirport(
-                icao: airport.icao,
-                iata: airport.iata,
-                name: airport.name,
-                city: airport.city,
-                country: airport.country,
-                latitude: airport.latitude,
-                longitude: airport.longitude
-            )
-            modelContext.insert(favorite)
         }
     }
 }
@@ -173,6 +128,5 @@ struct AirportHeaderView: View {
     NavigationStack {
         AirportDetailView(airport: .sampleLAX)
     }
-    .modelContainer(for: [FavoriteAirport.self, RecentAirport.self, ATCFeed.self], inMemory: true)
+    .modelContainer(for: [ATCFeed.self], inMemory: true)
 }
-
