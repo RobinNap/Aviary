@@ -52,6 +52,14 @@ final class AircraftProviderManager {
             }
             currentProvider = provider
             
+            // Automatically sync flight service to FlightRadar24
+            let flightSettings = FlightServiceSettings.shared
+            if flightSettings.selectedService != .flightradar24 {
+                flightSettings.selectedService = .flightradar24
+                Flightradar24FlightService.shared.updateCredentials()
+                NotificationCenter.default.post(name: .flightServiceChanged, object: nil)
+            }
+            
         case .aviationstack:
             let provider = AviationstackAircraftProvider()
             if let credentials = settings.getCredentials(for: .aviationstack) {
@@ -95,6 +103,17 @@ final class AircraftProviderManager {
         settings.selectedProvider = type
         if let credentials = credentials {
             settings.saveCredentials(credentials, for: type)
+        }
+        
+        // If FlightRadar24 is selected for aircraft, automatically use it for flights too
+        if type == .flightradar24 {
+            let flightSettings = FlightServiceSettings.shared
+            if flightSettings.selectedService != .flightradar24 {
+                flightSettings.selectedService = .flightradar24
+                // Update flight service credentials
+                Flightradar24FlightService.shared.updateCredentials()
+                NotificationCenter.default.post(name: .flightServiceChanged, object: nil)
+            }
         }
     }
     

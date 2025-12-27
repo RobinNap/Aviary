@@ -39,6 +39,12 @@ struct SettingsView: View {
                             ) {
                                 selectedProvider = provider
                                 loadCredentials(for: provider)
+                                
+                                // If FlightRadar24 is selected, automatically set it for flights
+                                if provider == .flightradar24 {
+                                    selectedFlightService = .flightradar24
+                                }
+                                
                                 if provider.requiresAuth {
                                     showingCredentials = true
                                 } else {
@@ -68,6 +74,11 @@ struct SettingsView: View {
                             showingCredentials = true
                         } else {
                             saveProvider()
+                        }
+                        
+                        // If FlightRadar24 is selected for aircraft, automatically set it for flights
+                        if newValue == .flightradar24 {
+                            selectedFlightService = .flightradar24
                         }
                     }
                     #endif
@@ -182,10 +193,13 @@ struct SettingsView: View {
                             FlightServiceSelectionRow(
                                 service: service,
                                 isSelected: selectedFlightService == service,
-                                isConfigured: hasFlightServiceCredentials(for: service)
+                                isConfigured: hasFlightServiceCredentials(for: service),
+                                isDisabled: selectedProvider == .flightradar24 && service != .flightradar24
                             ) {
-                                selectedFlightService = service
-                                saveFlightService()
+                                if selectedProvider != .flightradar24 {
+                                    selectedFlightService = service
+                                    saveFlightService()
+                                }
                             }
                         }
                     }
@@ -212,12 +226,16 @@ struct SettingsView: View {
                     .onChange(of: selectedFlightService) { _, _ in
                         saveFlightService()
                     }
+                    .disabled(selectedProvider == .flightradar24)
                     #endif
                 } header: {
                     Label("Flight Data Source", systemImage: "airplane.departure")
                         .font(.headline)
                 } footer: {
-                    if selectedFlightService == .flightradar24 {
+                    if selectedProvider == .flightradar24 {
+                        Text("Flightradar24 is selected for aircraft data. Flight data will automatically use the same FlightRadar24 API.")
+                            .font(.caption)
+                    } else if selectedFlightService == .flightradar24 {
                         Text("Flightradar24 requires an API key. Configure it in the Aircraft Data Provider section above using the same credentials.")
                             .font(.caption)
                     } else {
@@ -258,6 +276,11 @@ struct SettingsView: View {
             }
             .onAppear {
                 loadCredentials(for: selectedProvider)
+                
+                // If FlightRadar24 is selected for aircraft, automatically set it for flights
+                if selectedProvider == .flightradar24 {
+                    selectedFlightService = .flightradar24
+                }
             }
         }
     }
@@ -321,6 +344,27 @@ struct SettingsView: View {
                         return
                     }
                     
+                    // Test API credentials before saving (for FlightRadar24)
+                    if selectedProvider == .flightradar24 {
+                        if let apiKey = credentials["api_key"] {
+                            do {
+                                let provider = Flightradar24AircraftProvider()
+                                let isValid = try await provider.testCredentials(apiKey: apiKey)
+                                if !isValid {
+                                    errorMessage = "API key authentication failed. Please check your API key."
+                                    showingError = true
+                                    isSaving = false
+                                    return
+                                }
+                            } catch {
+                                // If test fails, still allow saving but show warning
+                                errorMessage = "Could not verify API key: \(error.localizedDescription). Credentials saved, but API may not work correctly."
+                                showingError = true
+                                // Continue to save anyway
+                            }
+                        }
+                    }
+                    
                     aircraftSettings.saveCredentials(credentials, for: selectedProvider)
                     try AircraftProviderManager.shared.switchProvider(
                         to: selectedProvider,
@@ -335,8 +379,15 @@ struct SettingsView: View {
                 
                 aircraftSettings.selectedProvider = selectedProvider
                 
+                // If FlightRadar24 is selected, automatically set it for flights too
+                if selectedProvider == .flightradar24 {
+                    flightSettings.selectedService = .flightradar24
+                    Flightradar24FlightService.shared.updateCredentials()
+                }
+                
                 // Reload provider in view model
                 NotificationCenter.default.post(name: .aircraftProviderChanged, object: nil)
+                NotificationCenter.default.post(name: .flightServiceChanged, object: nil)
                 
                 isSaving = false
             } catch {
@@ -388,7 +439,16 @@ struct FlightServiceSelectionRow: View {
     let service: FlightServiceType
     let isSelected: Bool
     let isConfigured: Bool
+    let isDisabled: Bool
     let action: () -> Void
+    
+    init(service: FlightServiceType, isSelected: Bool, isConfigured: Bool, isDisabled: Bool = false, action: @escaping () -> Void) {
+        self.service = service
+        self.isSelected = isSelected
+        self.isConfigured = isConfigured
+        self.isDisabled = isDisabled
+        self.action = action
+    }
     
     var body: some View {
         Button(action: action) {
@@ -396,7 +456,7 @@ struct FlightServiceSelectionRow: View {
                 // Radio button indicator
                 ZStack {
                     Circle()
-                        .stroke(isSelected ? Color.accentColor : Color.secondary, lineWidth: 2)
+                        .stroke(isSelected ? Color.accentColor : (isDisabled ? Color.secondary.opacity(0.5) : Color.secondary), lineWidth: 2)
                         .frame(width: 18, height: 18)
                     
                     if isSelected {
@@ -411,13 +471,17 @@ struct FlightServiceSelectionRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(service.displayName)
                         .font(.body)
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(isDisabled ? .secondary : .primary)
                     
                     Text(service.description)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     
-                    if service.requiresAuth && !isConfigured {
+                    if isDisabled {
+                        Text("Automatically selected with FlightRadar24 aircraft provider")
+                            .font(.caption2)
+                            .foregroundStyle(.blue)
+                    } else if service.requiresAuth && !isConfigured {
                         Text("⚠️ Requires API key in Aircraft Data Provider settings")
                             .font(.caption2)
                             .foregroundStyle(.orange)
@@ -436,11 +500,12 @@ struct FlightServiceSelectionRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(isDisabled)
         .padding(.vertical, 6)
         .padding(.horizontal, 8)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)
+                .fill(isSelected ? Color.accentColor.opacity(0.1) : (isDisabled ? Color.secondary.opacity(0.05) : Color.clear))
         )
     }
 }
@@ -557,62 +622,6 @@ extension Notification.Name {
     static let flightServiceChanged = Notification.Name("flightServiceChanged")
 }
 
-// MARK: - Flight Service Selection Row (macOS)
-#if os(macOS)
-struct FlightServiceSelectionRow: View {
-    let service: FlightServiceType
-    let isSelected: Bool
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            HStack(alignment: .top, spacing: 12) {
-                // Radio button indicator
-                ZStack {
-                    Circle()
-                        .stroke(isSelected ? Color.accentColor : Color.secondary, lineWidth: 2)
-                        .frame(width: 18, height: 18)
-                    
-                    if isSelected {
-                        Circle()
-                            .fill(Color.accentColor)
-                            .frame(width: 10, height: 10)
-                    }
-                }
-                .padding(.top, 2)
-                
-                // Service info
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(service.displayName)
-                        .font(.body)
-                        .foregroundStyle(.primary)
-                    
-                    Text(service.description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                
-                Spacer()
-                
-                // Status indicator
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                        .font(.system(size: 14))
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(.vertical, 6)
-        .padding(.horizontal, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)
-        )
-    }
-}
-#endif
 
 #Preview {
     SettingsView()
