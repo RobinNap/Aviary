@@ -27,6 +27,25 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section {
+                    #if os(macOS)
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(AircraftProviderType.allCases) { provider in
+                            ProviderSelectionRow(
+                                provider: provider,
+                                isSelected: selectedProvider == provider
+                            ) {
+                                selectedProvider = provider
+                                loadCredentials(for: provider)
+                                if provider.requiresAuth {
+                                    showingCredentials = true
+                                } else {
+                                    saveProvider()
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    #else
                     Picker("Data Source", selection: $selectedProvider) {
                         ForEach(AircraftProviderType.allCases) { provider in
                             VStack(alignment: .leading, spacing: 4) {
@@ -48,89 +67,134 @@ struct SettingsView: View {
                             saveProvider()
                         }
                     }
+                    #endif
                 } header: {
-                    Text("Aircraft Data Provider")
+                    Label("Aircraft Data Provider", systemImage: "airplane")
+                        .font(.headline)
                 } footer: {
                     Text("Select the data source for real-time aircraft tracking. Some providers require API keys or authentication.")
+                        .font(.caption)
                 }
                 
                 if selectedProvider.requiresAuth {
                     Section {
                         if showingCredentials {
-                            ForEach(selectedProvider.authFields.indices, id: \.self) { index in
-                                AuthFieldView(
-                                    field: selectedProvider.authFields[index],
-                                    value: Binding(
-                                        get: { credentials[selectedProvider.authFields[index].key] ?? "" },
-                                        set: { newValue in
-                                            credentials[selectedProvider.authFields[index].key] = newValue
-                                        }
+                            VStack(alignment: .leading, spacing: 12) {
+                                ForEach(selectedProvider.authFields.indices, id: \.self) { index in
+                                    AuthFieldView(
+                                        field: selectedProvider.authFields[index],
+                                        value: Binding(
+                                            get: { credentials[selectedProvider.authFields[index].key] ?? "" },
+                                            set: { newValue in
+                                                credentials[selectedProvider.authFields[index].key] = newValue
+                                            }
+                                        )
                                     )
-                                )
-                            }
-                            
-                            Button {
-                                saveProvider()
-                            } label: {
+                                }
+                                
                                 HStack {
-                                    if isSaving {
-                                        ProgressView()
-                                            .scaleEffect(0.8)
+                                    Spacer()
+                                    Button {
+                                        saveProvider()
+                                    } label: {
+                                        HStack(spacing: 6) {
+                                            if isSaving {
+                                                ProgressView()
+                                                    .scaleEffect(0.7)
+                                                    .frame(width: 12, height: 12)
+                                            } else {
+                                                Image(systemName: "checkmark.circle.fill")
+                                                    .font(.system(size: 12))
+                                            }
+                                            Text("Save Credentials")
+                                        }
+                                        .frame(minWidth: 140)
                                     }
-                                    Text("Save Credentials")
+                                    .buttonStyle(.borderedProminent)
+                                    .disabled(isSaving || !hasValidCredentials)
                                 }
+                                .padding(.top, 4)
                             }
-                            .disabled(isSaving || !hasValidCredentials)
+                            .padding(.vertical, 4)
                         } else {
-                            Button {
-                                showingCredentials = true
-                            } label: {
-                                HStack {
-                                    Image(systemName: "key.fill")
-                                    Text("Configure Credentials")
-                                }
-                            }
-                            
-                            if hasStoredCredentials {
-                                Button(role: .destructive) {
-                                    clearCredentials()
+                            VStack(alignment: .leading, spacing: 10) {
+                                Button {
+                                    showingCredentials = true
                                 } label: {
                                     HStack {
-                                        Image(systemName: "trash")
-                                        Text("Clear Credentials")
+                                        Image(systemName: "key.fill")
+                                            .font(.system(size: 13))
+                                        Text("Configure Credentials")
+                                        Spacer()
+                                        Image(systemName: "chevron.right")
+                                            .font(.system(size: 10, weight: .semibold))
+                                            .foregroundStyle(.secondary)
                                     }
                                 }
+                                .buttonStyle(.bordered)
+                                
+                                if hasStoredCredentials {
+                                    Button(role: .destructive) {
+                                        clearCredentials()
+                                    } label: {
+                                        HStack {
+                                            Image(systemName: "trash")
+                                                .font(.system(size: 13))
+                                            Text("Clear Credentials")
+                                            Spacer()
+                                        }
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
                             }
+                            .padding(.vertical, 4)
                         }
                     } header: {
-                        Text("Authentication")
+                        Label("Authentication", systemImage: "lock.shield")
+                            .font(.headline)
                     } footer: {
                         authenticationFooter
+                            .font(.caption)
                     }
                 }
                 
                 Section {
                     HStack {
-                        Image(systemName: "info.circle")
-                        Text("Current Provider")
-                        Spacer()
-                        Text(providerStatus)
+                        Label("Current Provider", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.secondary)
+                        Spacer()
+                        ProviderStatusBadge(status: providerStatus, isConfigured: hasStoredCredentials || !selectedProvider.requiresAuth)
                     }
+                    .padding(.vertical, 2)
                 } header: {
-                    Text("Status")
+                    Label("Status", systemImage: "info.circle")
+                        .font(.headline)
                 }
             }
+            .formStyle(.grouped)
             .navigationTitle("Settings")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
+            #if os(macOS)
+            .frame(minWidth: 500, idealWidth: 600, maxWidth: 700)
+            .padding()
+            #endif
             .toolbar {
+                #if os(macOS)
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                }
+                #else
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
                         dismiss()
                     }
                 }
+                #endif
             }
             .alert("Error", isPresented: $showingError) {
                 Button("OK", role: .cancel) { }
@@ -238,17 +302,111 @@ struct SettingsView: View {
     }
 }
 
-// MARK: - Helper View
+// MARK: - Helper Views
+
+#if os(macOS)
+/// Radio button style provider selection row for macOS
+struct ProviderSelectionRow: View {
+    let provider: AircraftProviderType
+    let isSelected: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 12) {
+                // Radio button indicator
+                ZStack {
+                    Circle()
+                        .stroke(isSelected ? Color.accentColor : Color.secondary, lineWidth: 2)
+                        .frame(width: 18, height: 18)
+                    
+                    if isSelected {
+                        Circle()
+                            .fill(Color.accentColor)
+                            .frame(width: 10, height: 10)
+                    }
+                }
+                .padding(.top, 2)
+                
+                // Provider info
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(provider.displayName)
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                    
+                    Text(provider.description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                
+                Spacer()
+                
+                // Status indicator
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                        .font(.system(size: 14))
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)
+        )
+    }
+}
+#endif
+
+/// Status badge for provider status
+struct ProviderStatusBadge: View {
+    let status: String
+    let isConfigured: Bool
+    
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(isConfigured ? Color.green : Color.orange)
+                .frame(width: 8, height: 8)
+            
+            Text(status)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            Capsule()
+                .fill(isConfigured ? Color.green.opacity(0.15) : Color.orange.opacity(0.15))
+        )
+    }
+}
+
 struct AuthFieldView: View {
     let field: AuthField
     @Binding var value: String
     
     var body: some View {
-        if field.isSecure {
-            SecureField(field.label, text: $value)
-        } else {
-            TextField(field.label, text: $value)
-                .autocorrectionDisabled()
+        VStack(alignment: .leading, spacing: 6) {
+            Text(field.label)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            
+            Group {
+                if field.isSecure {
+                    SecureField("", text: $value)
+                } else {
+                    TextField("", text: $value)
+                        .autocorrectionDisabled()
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                }
+            }
+            .textFieldStyle(.roundedBorder)
         }
     }
 }
