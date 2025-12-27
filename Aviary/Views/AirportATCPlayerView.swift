@@ -33,18 +33,6 @@ struct AirportATCPlayerView: View {
     
     var body: some View {
         HStack(spacing: 16) {
-            // Airport Code Badge
-            Text(airport.shortCode)
-                .font(.system(.headline, design: .monospaced))
-                .fontWeight(.bold)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(.ultraThinMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-            
-            Divider()
-                .frame(height: 24)
-            
             // Feed Selector / Player Area
             if isLoadingFeeds {
                 HStack(spacing: 8) {
@@ -110,7 +98,7 @@ struct AirportATCPlayerView: View {
                 Button {
                     showFeedPicker = true
                 } label: {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 6) {
                         Text(currentDisplayFeed?.name ?? "Select Feed")
                             .font(.subheadline)
                             .fontWeight(.medium)
@@ -120,11 +108,23 @@ struct AirportATCPlayerView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
+                    #if os(iOS)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.secondary.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    #endif
                 }
                 .buttonStyle(.plain)
+                #if os(iOS)
+                .sheet(isPresented: $showFeedPicker) {
+                    feedPickerSheetView
+                }
+                #else
                 .popover(isPresented: $showFeedPicker) {
                     feedPickerView
                 }
+                #endif
                 
                 // Status Line
                 HStack(spacing: 6) {
@@ -144,19 +144,6 @@ struct AirportATCPlayerView: View {
                             .foregroundStyle(.orange)
                     }
                 }
-            }
-            
-            // Stop button (when playing or loading)
-            if audioPlayer.hasFeedLoaded && isCurrentFeedFromThisAirport {
-                Button {
-                    audioPlayer.stop()
-                    selectedFeed = nil
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
             }
         }
     }
@@ -221,6 +208,67 @@ struct AirportATCPlayerView: View {
         .background(.ultraThinMaterial)
     }
     
+    #if os(iOS)
+    @ViewBuilder
+    private var feedPickerSheetView: some View {
+        NavigationStack {
+            Group {
+                if availableFeeds.isEmpty {
+                    ContentUnavailableView {
+                        Label("No Feeds Available", systemImage: "antenna.radiowaves.left.and.right.slash")
+                    } description: {
+                        Text("No ATC feeds found for \(airport.shortCode)")
+                    }
+                } else {
+                    feedPickerList
+                }
+            }
+            .navigationTitle("Select Channel")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        showFeedPicker = false
+                    }
+                }
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var feedPickerList: some View {
+        let groupedFeeds = Dictionary(grouping: availableFeeds) { $0.feedType }
+        let sortedTypes = ATCFeedType.allCases.filter { groupedFeeds[$0] != nil }
+        
+        List {
+            ForEach(sortedTypes, id: \.self) { feedType in
+                if let feeds = groupedFeeds[feedType] {
+                    Section {
+                        ForEach(feeds) { feed in
+                            FeedPickerRowView(
+                                feed: feed,
+                                isSelected: audioPlayer.currentLiveFeed?.id == feed.id,
+                                isPlaying: audioPlayer.currentLiveFeed?.id == feed.id && audioPlayer.isPlaying,
+                                onSelect: {
+                                    selectAndPlay(feed)
+                                    showFeedPicker = false
+                                }
+                            )
+                        }
+                    } header: {
+                        HStack(spacing: 6) {
+                            Image(systemName: feedType.icon)
+                                .font(.caption)
+                            Text(feedType.displayName)
+                        }
+                    }
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+    }
+    #endif
+    
     // MARK: - Helpers
     
     private var currentDisplayFeed: LiveATCFeed? {
@@ -268,6 +316,74 @@ struct AirportATCPlayerView: View {
         audioPlayer.play(liveFeed: feed)
     }
 }
+
+// MARK: - Feed Picker Row View (iPhone)
+#if os(iOS)
+struct FeedPickerRowView: View {
+    let feed: LiveATCFeed
+    let isSelected: Bool
+    let isPlaying: Bool
+    let onSelect: () -> Void
+    
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 16) {
+                // Feed Type Icon
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(isSelected ? Color.accentColor.opacity(0.2) : Color.accentColor.opacity(0.1))
+                        .frame(width: 44, height: 44)
+                    
+                    Image(systemName: feed.feedType.icon)
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(isSelected ? Color.accentColor : Color.accentColor.opacity(0.8))
+                }
+                
+                // Feed Info
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(feed.name)
+                        .font(.body)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.primary)
+                    
+                    HStack(spacing: 6) {
+                        if isPlaying {
+                            HStack(spacing: 4) {
+                                Image(systemName: "waveform")
+                                    .font(.caption2)
+                                    .symbolEffect(.variableColor.iterative, isActive: isPlaying)
+                                Text("Live")
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                        } else if isSelected {
+                            HStack(spacing: 4) {
+                                Image(systemName: "checkmark.circle.fill")
+                                Text("Selected")
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                
+                Spacer()
+                
+                // Selection Indicator
+                if isSelected {
+                    Image(systemName: isPlaying ? "speaker.wave.2.fill" : "checkmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(isSelected ? Color.accentColor.opacity(0.05) : nil)
+    }
+}
+#endif
 
 #Preview {
     VStack {

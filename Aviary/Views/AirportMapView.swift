@@ -55,18 +55,6 @@ struct AirportMapView: View {
                 MapUserLocationButton()
             }
             
-            // Overlay controls
-            VStack(alignment: .trailing, spacing: 12) {
-                // Stats pill
-                StatsPillView(
-                    airborne: viewModel.airborneCount,
-                    onGround: viewModel.groundCount,
-                    isLoading: viewModel.isLoading,
-                    lastUpdated: viewModel.lastUpdated
-                )
-            }
-            .padding()
-            
             // Selected aircraft detail sheet
             if let aircraft = selectedAircraft {
                 VStack {
@@ -153,39 +141,6 @@ struct AircraftAnnotationView: View {
             }
         }
         return .blue // Level flight
-    }
-}
-
-// MARK: - Stats Pill View
-struct StatsPillView: View {
-    let airborne: Int
-    let onGround: Int
-    let isLoading: Bool
-    let lastUpdated: Date?
-    
-    var body: some View {
-        HStack(spacing: 12) {
-            // Airborne count
-            Label("\(airborne)", systemImage: "airplane")
-                .foregroundStyle(.blue)
-            
-            Divider()
-                .frame(height: 16)
-            
-            // Ground count
-            Label("\(onGround)", systemImage: "airplane.circle")
-                .foregroundStyle(.gray)
-            
-            if isLoading {
-                ProgressView()
-                    .scaleEffect(0.7)
-            }
-        }
-        .font(.subheadline)
-        .fontWeight(.medium)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial, in: Capsule())
     }
 }
 
