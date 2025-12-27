@@ -659,7 +659,9 @@ struct FeedPickerSheet: View {
                 }
             }
             .navigationTitle("Select ATC Feed")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
