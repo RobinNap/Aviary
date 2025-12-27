@@ -13,13 +13,10 @@ import MapKit
 struct AirportDetailView: View {
     let airport: Airport
     
-    @State private var selectedTab: AirportTab = .arrivals
+    @State private var selectedTab: AirportTab = .map
     
     var body: some View {
         VStack(spacing: 0) {
-            // Airport Header
-            AirportHeaderView(airport: airport)
-            
             // Tab Selector
             Picker("View", selection: $selectedTab) {
                 ForEach(AirportTab.allCases) { tab in
@@ -34,6 +31,8 @@ struct AirportDetailView: View {
             // Tab Content
             Group {
                 switch selectedTab {
+                case .map:
+                    AirportMapView(airport: airport)
                 case .arrivals:
                     ArrivalsView(airport: airport)
                 case .departures:
@@ -42,11 +41,28 @@ struct AirportDetailView: View {
             }
             .frame(maxHeight: .infinity)
         }
+        .navigationTitle(airport.shortCode)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                VStack(spacing: 0) {
+                    Text(airport.shortCode)
+                        .font(.headline)
+                    Text(airport.name)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+        }
     }
 }
 
 // MARK: - Airport Tab
 enum AirportTab: String, CaseIterable, Identifiable {
+    case map
     case arrivals
     case departures
     
@@ -54,6 +70,7 @@ enum AirportTab: String, CaseIterable, Identifiable {
     
     var title: String {
         switch self {
+        case .map: return "Map"
         case .arrivals: return "Arrivals"
         case .departures: return "Departures"
         }
@@ -61,66 +78,10 @@ enum AirportTab: String, CaseIterable, Identifiable {
     
     var icon: String {
         switch self {
+        case .map: return "map"
         case .arrivals: return "airplane.arrival"
         case .departures: return "airplane.departure"
         }
-    }
-}
-
-// MARK: - Airport Header View
-struct AirportHeaderView: View {
-    let airport: Airport
-    
-    var body: some View {
-        VStack(spacing: 12) {
-            // Map Preview
-            Map(initialPosition: .region(MKCoordinateRegion(
-                center: CLLocationCoordinate2D(latitude: airport.latitude, longitude: airport.longitude),
-                span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
-            ))) {
-                Marker(airport.shortCode, coordinate: CLLocationCoordinate2D(
-                    latitude: airport.latitude,
-                    longitude: airport.longitude
-                ))
-            }
-            .frame(height: 150)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .padding(.horizontal)
-            .allowsHitTesting(false)
-            
-            // Airport Info
-            VStack(spacing: 4) {
-                Text(airport.name)
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                    .multilineTextAlignment(.center)
-                
-                HStack(spacing: 8) {
-                    Text(airport.fullCode)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(.secondary.opacity(0.15))
-                        .clipShape(Capsule())
-                    
-                    if let city = airport.city, let country = airport.country {
-                        Text("\(city), \(country)")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                
-                if let elevation = airport.elevation {
-                    Text("Elevation: \(elevation) ft")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            .padding(.horizontal)
-        }
-        .padding(.vertical)
-        .background(.ultraThinMaterial)
     }
 }
 
@@ -130,3 +91,4 @@ struct AirportHeaderView: View {
     }
     .modelContainer(for: [ATCFeed.self], inMemory: true)
 }
+
