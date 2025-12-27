@@ -37,6 +37,7 @@ enum AircraftProviderType: String, CaseIterable, Identifiable {
     case openSky = "opensky"
     case openSkyAuthenticated = "opensky_auth"
     case flightradar24 = "flightradar24"
+    case aviationstack = "aviationstack"
     
     var id: String { rawValue }
     
@@ -48,6 +49,8 @@ enum AircraftProviderType: String, CaseIterable, Identifiable {
             return "OpenSky Network (Authenticated)"
         case .flightradar24:
             return "Flightradar24"
+        case .aviationstack:
+            return "Aviationstack"
         }
     }
     
@@ -59,6 +62,8 @@ enum AircraftProviderType: String, CaseIterable, Identifiable {
             return "Free with account, 1 request per second"
         case .flightradar24:
             return "Paid subscription, near real-time"
+        case .aviationstack:
+            return "Free plan: 100 requests/month, Paid from $49.99/month"
         }
     }
     
@@ -69,6 +74,8 @@ enum AircraftProviderType: String, CaseIterable, Identifiable {
         case .openSkyAuthenticated:
             return true
         case .flightradar24:
+            return true
+        case .aviationstack:
             return true
         }
     }
@@ -83,6 +90,10 @@ enum AircraftProviderType: String, CaseIterable, Identifiable {
                 AuthField(key: "password", label: "Password", isSecure: true)
             ]
         case .flightradar24:
+            return [
+                AuthField(key: "api_key", label: "API Key", isSecure: true)
+            ]
+        case .aviationstack:
             return [
                 AuthField(key: "api_key", label: "API Key", isSecure: true)
             ]

@@ -7,10 +7,12 @@
 
 import SwiftUI
 
-/// Settings view for configuring aircraft data providers
+/// Settings view for configuring aircraft data providers and flight data sources
 struct SettingsView: View {
-    private let settings = AircraftSettings.shared
+    private let aircraftSettings = AircraftSettings.shared
+    private let flightSettings = FlightServiceSettings.shared
     @State private var selectedProvider: AircraftProviderType
+    @State private var selectedFlightService: FlightServiceType
     @State private var credentials: [String: String] = [:]
     @State private var showingCredentials = false
     @State private var errorMessage: String?
@@ -21,6 +23,7 @@ struct SettingsView: View {
     
     init() {
         _selectedProvider = State(initialValue: AircraftSettings.shared.selectedProvider)
+        _selectedFlightService = State(initialValue: FlightServiceSettings.shared.selectedService)
     }
     
     var body: some View {
@@ -170,6 +173,58 @@ struct SettingsView: View {
                     Label("Status", systemImage: "info.circle")
                         .font(.headline)
                 }
+                
+                // Flight Data Source Section
+                Section {
+                    #if os(macOS)
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(FlightServiceType.allCases) { service in
+                            FlightServiceSelectionRow(
+                                service: service,
+                                isSelected: selectedFlightService == service,
+                                isConfigured: hasFlightServiceCredentials(for: service)
+                            ) {
+                                selectedFlightService = service
+                                saveFlightService()
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    #else
+                    Picker("Flight Data Source", selection: $selectedFlightService) {
+                        ForEach(FlightServiceType.allCases) { service in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(service.displayName)
+                                    .font(.body)
+                                Text(service.description)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                if service.requiresAuth && !hasFlightServiceCredentials(for: service) {
+                                    Text("⚠️ Requires API key in Aircraft Data Provider settings")
+                                        .font(.caption2)
+                                        .foregroundStyle(.orange)
+                                }
+                            }
+                            .tag(service)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .onChange(of: selectedFlightService) { _, _ in
+                        saveFlightService()
+                    }
+                    #endif
+                } header: {
+                    Label("Flight Data Source", systemImage: "airplane.departure")
+                        .font(.headline)
+                } footer: {
+                    if selectedFlightService == .flightradar24 {
+                        Text("Flightradar24 requires an API key. Configure it in the Aircraft Data Provider section above using the same credentials.")
+                            .font(.caption)
+                    } else {
+                        Text("Select the data source for arrivals and departures. Some sources have rate limits.")
+                            .font(.caption)
+                    }
+                }
             }
             .formStyle(.grouped)
             .navigationTitle("Settings")
@@ -213,7 +268,7 @@ struct SettingsView: View {
     }
     
     private var hasStoredCredentials: Bool {
-        settings.getCredentials(for: selectedProvider) != nil
+        aircraftSettings.getCredentials(for: selectedProvider) != nil
     }
     
     private var providerStatus: String {
@@ -237,11 +292,13 @@ struct SettingsView: View {
             Text("Create a free account at opensky-network.org to get 1 request per second instead of 1 per 10 seconds.")
         case .flightradar24:
             Text("Requires a Flightradar24 API subscription. Visit flightradar24.com for API access.")
+        case .aviationstack:
+            Text("Get a free API key at aviationstack.com. Free plan includes 100 requests/month. Paid plans start at $49.99/month.")
         }
     }
     
     private func loadCredentials(for provider: AircraftProviderType) {
-        if let stored = settings.getCredentials(for: provider) {
+        if let stored = aircraftSettings.getCredentials(for: provider) {
             credentials = stored
             showingCredentials = true
         } else {
@@ -264,6 +321,7 @@ struct SettingsView: View {
                         return
                     }
                     
+                    aircraftSettings.saveCredentials(credentials, for: selectedProvider)
                     try AircraftProviderManager.shared.switchProvider(
                         to: selectedProvider,
                         credentials: credentials
@@ -274,6 +332,8 @@ struct SettingsView: View {
                         credentials: nil
                     )
                 }
+                
+                aircraftSettings.selectedProvider = selectedProvider
                 
                 // Reload provider in view model
                 NotificationCenter.default.post(name: .aircraftProviderChanged, object: nil)
@@ -288,23 +348,103 @@ struct SettingsView: View {
     }
     
     private func clearCredentials() {
-        settings.clearCredentials(for: selectedProvider)
+        aircraftSettings.clearCredentials(for: selectedProvider)
         credentials = [:]
         showingCredentials = false
         
         // Reset to default if current provider
-        if settings.selectedProvider == selectedProvider {
-            settings.selectedProvider = .openSky
+        if aircraftSettings.selectedProvider == selectedProvider {
+            aircraftSettings.selectedProvider = .openSky
             selectedProvider = .openSky
             try? AircraftProviderManager.shared.switchProvider(to: .openSky, credentials: nil)
             NotificationCenter.default.post(name: .aircraftProviderChanged, object: nil)
         }
+    }
+    
+    private func saveFlightService() {
+        flightSettings.selectedService = selectedFlightService
+        
+        // Update Flightradar24 service credentials if needed
+        if selectedFlightService == .flightradar24 {
+            Flightradar24FlightService.shared.updateCredentials()
+        }
+        
+        NotificationCenter.default.post(name: .flightServiceChanged, object: nil)
+    }
+    
+    private func hasFlightServiceCredentials(for service: FlightServiceType) -> Bool {
+        if service == .flightradar24 {
+            return aircraftSettings.getCredentials(for: .flightradar24) != nil
+        }
+        return true // OpenSky doesn't require credentials
     }
 }
 
 // MARK: - Helper Views
 
 #if os(macOS)
+/// Radio button style flight service selection row for macOS
+struct FlightServiceSelectionRow: View {
+    let service: FlightServiceType
+    let isSelected: Bool
+    let isConfigured: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 12) {
+                // Radio button indicator
+                ZStack {
+                    Circle()
+                        .stroke(isSelected ? Color.accentColor : Color.secondary, lineWidth: 2)
+                        .frame(width: 18, height: 18)
+                    
+                    if isSelected {
+                        Circle()
+                            .fill(Color.accentColor)
+                            .frame(width: 10, height: 10)
+                    }
+                }
+                .padding(.top, 2)
+                
+                // Service info
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(service.displayName)
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                    
+                    Text(service.description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    
+                    if service.requiresAuth && !isConfigured {
+                        Text("⚠️ Requires API key in Aircraft Data Provider settings")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
+                }
+                
+                Spacer()
+                
+                // Status indicator
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                        .font(.system(size: 14))
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)
+        )
+    }
+}
+
 /// Radio button style provider selection row for macOS
 struct ProviderSelectionRow: View {
     let provider: AircraftProviderType
@@ -414,7 +554,65 @@ struct AuthFieldView: View {
 // MARK: - Notification Names
 extension Notification.Name {
     static let aircraftProviderChanged = Notification.Name("aircraftProviderChanged")
+    static let flightServiceChanged = Notification.Name("flightServiceChanged")
 }
+
+// MARK: - Flight Service Selection Row (macOS)
+#if os(macOS)
+struct FlightServiceSelectionRow: View {
+    let service: FlightServiceType
+    let isSelected: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 12) {
+                // Radio button indicator
+                ZStack {
+                    Circle()
+                        .stroke(isSelected ? Color.accentColor : Color.secondary, lineWidth: 2)
+                        .frame(width: 18, height: 18)
+                    
+                    if isSelected {
+                        Circle()
+                            .fill(Color.accentColor)
+                            .frame(width: 10, height: 10)
+                    }
+                }
+                .padding(.top, 2)
+                
+                // Service info
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(service.displayName)
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                    
+                    Text(service.description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                
+                Spacer()
+                
+                // Status indicator
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                        .font(.system(size: 14))
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)
+        )
+    }
+}
+#endif
 
 #Preview {
     SettingsView()

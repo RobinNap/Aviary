@@ -16,9 +16,11 @@ final class OpenSkyFlightService: FlightService {
     private let session: URLSession
     private let decoder: JSONDecoder
     
-    // Rate limiting
+    // Rate limiting with exponential backoff
     private var lastRequestTime: Date?
-    private let minRequestInterval: TimeInterval = 10 // 10 seconds between requests
+    private var consecutiveFailures: Int = 0
+    private let minRequestInterval: TimeInterval = 10 // 10 seconds between requests (OpenSky allows 1 request per 10 seconds for anonymous)
+    private let maxBackoffInterval: TimeInterval = 300 // Max 5 minutes backoff
     
     private init() {
         let config = URLSessionConfiguration.default
@@ -40,11 +42,17 @@ final class OpenSkyFlightService: FlightService {
             throw FlightServiceError.invalidAirportCode
         }
         
-        // Rate limiting check
+        // Rate limiting check with exponential backoff
         if let lastRequest = lastRequestTime {
+            let baseInterval = minRequestInterval
+            let backoffMultiplier = pow(2.0, Double(min(consecutiveFailures, 5))) // Cap at 2^5 = 32x
+            let requiredInterval = baseInterval * backoffMultiplier
+            let maxInterval = min(requiredInterval, maxBackoffInterval)
+            
             let elapsed = Date().timeIntervalSince(lastRequest)
-            if elapsed < minRequestInterval {
-                let waitTime = minRequestInterval - elapsed
+            if elapsed < maxInterval {
+                let waitTime = maxInterval - elapsed
+                print("OpenSkyFlightService: Rate limiting - waiting \(waitTime) seconds (failures: \(consecutiveFailures))")
                 try await Task.sleep(nanoseconds: UInt64(waitTime * 1_000_000_000))
             }
         }
@@ -83,12 +91,17 @@ final class OpenSkyFlightService: FlightService {
             
             switch httpResponse.statusCode {
             case 200:
+                consecutiveFailures = 0 // Reset on success
                 return try parseOpenSkyResponse(data: data, direction: direction, airportIcao: airportIcao)
             case 429:
+                consecutiveFailures += 1
+                print("OpenSkyFlightService: Rate limited (429) - consecutive failures: \(consecutiveFailures)")
                 throw FlightServiceError.rateLimited
             case 404:
+                consecutiveFailures = 0 // Not a failure, just no data
                 return [] // No data for this airport
             default:
+                consecutiveFailures += 1
                 throw FlightServiceError.networkError(URLError(.badServerResponse))
             }
         } catch let error as FlightServiceError {
@@ -102,6 +115,7 @@ final class OpenSkyFlightService: FlightService {
     private func parseOpenSkyResponse(data: Data, direction: FlightDirection, airportIcao: String) throws -> [Flight] {
         do {
             let openSkyFlights = try decoder.decode([OpenSkyFlight].self, from: data)
+            let normalizedAirportIcao = airportIcao.uppercased()
             
             return openSkyFlights.compactMap { osFlight -> Flight? in
                 // Skip entries without essential data
@@ -110,18 +124,78 @@ final class OpenSkyFlightService: FlightService {
                     return nil
                 }
                 
+                // Explicitly filter to ensure flights match the requested airport
+                let matchesAirport: Bool
+                if direction == .arrival {
+                    // For arrivals, destination must match
+                    matchesAirport = osFlight.estArrivalAirport?.uppercased() == normalizedAirportIcao
+                } else {
+                    // For departures, origin must match
+                    matchesAirport = osFlight.estDepartureAirport?.uppercased() == normalizedAirportIcao
+                }
+                
+                guard matchesAirport else {
+                    return nil
+                }
+                
+                // Determine times and status more accurately
+                let now = Date()
                 let scheduledTime: Date?
                 let actualTime: Date?
+                let estimatedTime: Date?
                 let status: FlightStatus
                 
                 if direction == .arrival {
-                    scheduledTime = osFlight.lastSeen.map { Date(timeIntervalSince1970: TimeInterval($0)) }
-                    actualTime = scheduledTime
-                    status = actualTime != nil ? .landed : .scheduled
+                    // For arrivals, lastSeen is when aircraft was last tracked (likely landed)
+                    // firstSeen might be when it entered the area
+                    if let lastSeen = osFlight.lastSeen {
+                        let lastSeenDate = Date(timeIntervalSince1970: TimeInterval(lastSeen))
+                        actualTime = lastSeenDate
+                        
+                        // If lastSeen is recent (within last hour), likely landed
+                        if now.timeIntervalSince(lastSeenDate) < 3600 {
+                            status = .landed
+                            scheduledTime = lastSeenDate
+                        } else {
+                            status = .landed
+                            scheduledTime = lastSeenDate
+                        }
+                        estimatedTime = nil
+                    } else if let firstSeen = osFlight.firstSeen {
+                        // Aircraft is being tracked but hasn't landed yet
+                        let firstSeenDate = Date(timeIntervalSince1970: TimeInterval(firstSeen))
+                        scheduledTime = firstSeenDate
+                        estimatedTime = now.addingTimeInterval(1800) // Estimate 30 min from now
+                        actualTime = nil
+                        status = .enRoute
+                    } else {
+                        scheduledTime = nil
+                        estimatedTime = nil
+                        actualTime = nil
+                        status = .scheduled
+                    }
                 } else {
-                    scheduledTime = osFlight.firstSeen.map { Date(timeIntervalSince1970: TimeInterval($0)) }
-                    actualTime = scheduledTime
-                    status = actualTime != nil ? .departed : .scheduled
+                    // For departures, firstSeen is when aircraft was first tracked (likely departed)
+                    if let firstSeen = osFlight.firstSeen {
+                        let firstSeenDate = Date(timeIntervalSince1970: TimeInterval(firstSeen))
+                        actualTime = firstSeenDate
+                        
+                        // If firstSeen is recent (within last hour), likely departed
+                        if now.timeIntervalSince(firstSeenDate) < 3600 {
+                            status = .departed
+                            scheduledTime = firstSeenDate
+                        } else {
+                            status = .departed
+                            scheduledTime = firstSeenDate
+                        }
+                        estimatedTime = nil
+                    } else {
+                        // Scheduled but not yet departed
+                        scheduledTime = now.addingTimeInterval(3600) // Default to 1 hour from now
+                        estimatedTime = scheduledTime
+                        actualTime = nil
+                        status = .scheduled
+                    }
                 }
                 
                 return Flight(
@@ -135,7 +209,7 @@ final class OpenSkyFlightService: FlightService {
                     destinationIcao: osFlight.estArrivalAirport,
                     destinationName: nil,
                     scheduledTime: scheduledTime,
-                    estimatedTime: nil,
+                    estimatedTime: estimatedTime,
                     actualTime: actualTime,
                     status: status,
                     direction: direction

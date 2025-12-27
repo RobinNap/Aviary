@@ -51,6 +51,11 @@ struct RootSplitView: View {
                 if selectedAirport != nil {
                     ToolbarItem(placement: .navigation) {
                         Button {
+                            // Stop audio if playing a feed from the current airport
+                            if let currentFeed = audioPlayer.currentLiveFeed,
+                               currentFeed.icao == selectedAirport?.icao {
+                                audioPlayer.stop()
+                            }
                             withAnimation {
                                 selectedAirport = nil
                             }

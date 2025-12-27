@@ -18,11 +18,26 @@ final class FlightsViewModel: ObservableObject {
     @Published private(set) var error: Error?
     @Published private(set) var lastUpdated: Date?
     
-    private let flightService: FlightService
+    private var flightService: FlightService
     private var currentIcao: String?
+    private var refreshTask: Task<Void, Never>?
+    private let settings = FlightServiceSettings.shared
     
     init(flightService: FlightService? = nil) {
-        self.flightService = flightService ?? OpenSkyFlightService.shared
+        self.flightService = flightService ?? settings.selectedService.createService()
+        
+        // Listen for service changes
+        NotificationCenter.default.addObserver(
+            forName: .flightServiceChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.flightService = self?.settings.selectedService.createService() ?? OpenSkyFlightService.shared
+        }
+    }
+    
+    deinit {
+        refreshTask?.cancel()
     }
     
     /// Load flights for an airport
@@ -35,31 +50,63 @@ final class FlightsViewModel: ObservableObject {
         error = nil
         
         do {
+            // Use a more current time range: 1 hour ago to 6 hours from now
+            // This ensures we get recent arrivals/departures and upcoming flights
+            let now = Date()
             let flights = try await flightService.fetchFlights(
                 airportIcao: icao,
                 direction: direction,
-                from: Date().addingTimeInterval(-7200), // 2 hours ago
-                to: Date().addingTimeInterval(14400)    // 4 hours from now
+                from: now.addingTimeInterval(-3600), // 1 hour ago
+                to: now.addingTimeInterval(21600)    // 6 hours from now
             )
+            
+            // Filter flights to ensure they match the airport
+            let filteredFlights = flights.filter { flight in
+                switch direction {
+                case .arrival:
+                    // For arrivals, destination must match
+                    return flight.destinationIcao?.uppercased() == icao.uppercased()
+                case .departure:
+                    // For departures, origin must match
+                    return flight.originIcao?.uppercased() == icao.uppercased()
+                }
+            }
             
             switch direction {
             case .arrival:
-                arrivals = flights.sorted { ($0.displayTime ?? .distantPast) < ($1.displayTime ?? .distantPast) }
+                arrivals = filteredFlights.sorted { ($0.displayTime ?? .distantPast) < ($1.displayTime ?? .distantPast) }
             case .departure:
-                departures = flights.sorted { ($0.displayTime ?? .distantPast) < ($1.displayTime ?? .distantPast) }
+                departures = filteredFlights.sorted { ($0.displayTime ?? .distantPast) < ($1.displayTime ?? .distantPast) }
             }
             
             lastUpdated = Date()
+        } catch let error as FlightServiceError {
+            self.error = error
+            print("Error loading flights: \(error)")
+            
+            // For rate limiting, show a helpful message
+            if case .rateLimited = error {
+                // Don't clear existing data immediately on rate limit
+                // Keep showing what we have, but mark as stale
+            } else {
+                // For other errors, clear the data
+                switch direction {
+                case .arrival:
+                    arrivals = []
+                case .departure:
+                    departures = []
+                }
+            }
         } catch {
             self.error = error
             print("Error loading flights: \(error)")
             
-            // Use sample data as fallback
+            // Clear data on unknown errors
             switch direction {
             case .arrival:
-                arrivals = Flight.sampleArrivals
+                arrivals = []
             case .departure:
-                departures = Flight.sampleDepartures
+                departures = []
             }
         }
         
@@ -72,5 +119,33 @@ final class FlightsViewModel: ObservableObject {
         async let departuresTask: () = loadFlights(for: icao, direction: .departure)
         
         _ = await (arrivalsTask, departuresTask)
+    }
+    
+    /// Start automatic refresh for an airport
+    func startAutoRefresh(for icao: String, interval: TimeInterval = 120) {
+        refreshTask?.cancel()
+        
+        refreshTask = Task {
+            while !Task.isCancelled {
+                await refreshAll(for: icao)
+                
+                // Use longer interval if we got rate limited
+                let waitInterval: TimeInterval
+                if let error = error as? FlightServiceError,
+                   case .rateLimited = error {
+                    waitInterval = max(interval * 2, 300) // At least 5 minutes if rate limited
+                } else {
+                    waitInterval = interval
+                }
+                
+                try? await Task.sleep(nanoseconds: UInt64(waitInterval * 1_000_000_000))
+            }
+        }
+    }
+    
+    /// Stop automatic refresh
+    func stopAutoRefresh() {
+        refreshTask?.cancel()
+        refreshTask = nil
     }
 }

@@ -51,6 +51,13 @@ final class AircraftProviderManager {
                 try? provider.configureAuth(credentials: credentials)
             }
             currentProvider = provider
+            
+        case .aviationstack:
+            let provider = AviationstackAircraftProvider()
+            if let credentials = settings.getCredentials(for: .aviationstack) {
+                try? provider.configureAuth(credentials: credentials)
+            }
+            currentProvider = provider
         }
     }
     
@@ -71,6 +78,13 @@ final class AircraftProviderManager {
             
         case .flightradar24:
             let provider = Flightradar24AircraftProvider()
+            if let credentials = credentials {
+                try provider.configureAuth(credentials: credentials)
+            }
+            newProvider = provider
+            
+        case .aviationstack:
+            let provider = AviationstackAircraftProvider()
             if let credentials = credentials {
                 try provider.configureAuth(credentials: credentials)
             }

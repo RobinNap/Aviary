@@ -14,6 +14,9 @@ struct AirportDetailView: View {
     let airport: Airport
     
     @State private var selectedTab: AirportTab = .map
+    @StateObject private var audioPlayer = AudioPlayer.shared
+    @StateObject private var arrivalsViewModel = FlightsViewModel()
+    @StateObject private var departuresViewModel = FlightsViewModel()
     
     var body: some View {
         VStack(spacing: 0) {
@@ -34,12 +37,35 @@ struct AirportDetailView: View {
                 case .map:
                     AirportMapView(airport: airport)
                 case .arrivals:
-                    ArrivalsView(airport: airport)
+                    ArrivalsView(airport: airport, viewModel: arrivalsViewModel)
                 case .departures:
-                    DeparturesView(airport: airport)
+                    DeparturesView(airport: airport, viewModel: departuresViewModel)
                 }
             }
             .frame(maxHeight: .infinity)
+            .onChange(of: selectedTab) { _, newTab in
+                // Only refresh data for the newly selected tab
+                switch newTab {
+                case .arrivals:
+                    Task {
+                        await arrivalsViewModel.loadFlights(for: airport.icao, direction: .arrival)
+                        arrivalsViewModel.startAutoRefresh(for: airport.icao, interval: 120)
+                    }
+                    // Stop departures refresh
+                    departuresViewModel.stopAutoRefresh()
+                case .departures:
+                    Task {
+                        await departuresViewModel.loadFlights(for: airport.icao, direction: .departure)
+                        departuresViewModel.startAutoRefresh(for: airport.icao, interval: 120)
+                    }
+                    // Stop arrivals refresh
+                    arrivalsViewModel.stopAutoRefresh()
+                case .map:
+                    // Stop both when on map
+                    arrivalsViewModel.stopAutoRefresh()
+                    departuresViewModel.stopAutoRefresh()
+                }
+            }
         }
         .navigationTitle(airport.shortCode)
         #if os(iOS)
@@ -55,6 +81,49 @@ struct AirportDetailView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
+            }
+        }
+        .onChange(of: airport.icao) { _, newIcao in
+            // Stop audio player if playing a feed from a different airport
+            if let currentFeed = audioPlayer.currentLiveFeed, currentFeed.icao != newIcao {
+                audioPlayer.stop()
+            }
+            
+            // Stop all refreshes and reload for new airport
+            arrivalsViewModel.stopAutoRefresh()
+            departuresViewModel.stopAutoRefresh()
+            
+            // Only load data for the currently active tab
+            switch selectedTab {
+            case .arrivals:
+                Task {
+                    await arrivalsViewModel.loadFlights(for: newIcao, direction: .arrival)
+                    arrivalsViewModel.startAutoRefresh(for: newIcao, interval: 120)
+                }
+            case .departures:
+                Task {
+                    await departuresViewModel.loadFlights(for: newIcao, direction: .departure)
+                    departuresViewModel.startAutoRefresh(for: newIcao, interval: 120)
+                }
+            case .map:
+                break
+            }
+        }
+        .onAppear {
+            // Load data for the initially selected tab
+            switch selectedTab {
+            case .arrivals:
+                Task {
+                    await arrivalsViewModel.loadFlights(for: airport.icao, direction: .arrival)
+                    arrivalsViewModel.startAutoRefresh(for: airport.icao, interval: 120)
+                }
+            case .departures:
+                Task {
+                    await departuresViewModel.loadFlights(for: airport.icao, direction: .departure)
+                    departuresViewModel.startAutoRefresh(for: airport.icao, interval: 120)
+                }
+            case .map:
+                break
             }
         }
     }
