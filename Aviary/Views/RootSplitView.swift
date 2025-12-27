@@ -62,6 +62,14 @@ struct RootSplitView: View {
                         }
                     }
                 }
+                
+                ToolbarItem(placement: .automatic) {
+                    NavigationLink {
+                        SettingsView()
+                    } label: {
+                        Image(systemName: "gearshape.fill")
+                    }
+                }
             }
         }
         .animation(.easeInOut(duration: 0.3), value: selectedAirport)

@@ -15,7 +15,6 @@ struct AirportMapView: View {
     @StateObject private var viewModel = LiveAircraftViewModel()
     @State private var selectedAircraft: LiveAircraft?
     @State private var mapCameraPosition: MapCameraPosition
-    @State private var showAircraftList = false
     
     init(airport: Airport) {
         self.airport = airport
@@ -65,34 +64,6 @@ struct AirportMapView: View {
                     isLoading: viewModel.isLoading,
                     lastUpdated: viewModel.lastUpdated
                 )
-                
-                // Controls
-                VStack(spacing: 8) {
-                    // Recenter button
-                    Button {
-                        withAnimation {
-                            mapCameraPosition = .region(MKCoordinateRegion(
-                                center: CLLocationCoordinate2D(latitude: airport.latitude, longitude: airport.longitude),
-                                span: MKCoordinateSpan(latitudeDelta: 0.5, longitudeDelta: 0.5)
-                            ))
-                        }
-                    } label: {
-                        Image(systemName: "location.viewfinder")
-                            .font(.title3)
-                            .frame(width: 44, height: 44)
-                            .background(.ultraThinMaterial, in: Circle())
-                    }
-                    
-                    // Aircraft list toggle
-                    Button {
-                        showAircraftList.toggle()
-                    } label: {
-                        Image(systemName: "list.bullet")
-                            .font(.title3)
-                            .frame(width: 44, height: 44)
-                            .background(.ultraThinMaterial, in: Circle())
-                    }
-                }
             }
             .padding()
             
@@ -105,26 +76,11 @@ struct AirportMapView: View {
                             selectedAircraft = nil
                         }
                     }
-                    .padding()
+                    .padding(.horizontal)
+                    .padding(.bottom, 100) // Extra padding to avoid overlap with audio player
                 }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-        }
-        .sheet(isPresented: $showAircraftList) {
-            AircraftListSheet(
-                aircraft: viewModel.aircraft,
-                onSelect: { aircraft in
-                    selectedAircraft = aircraft
-                    withAnimation {
-                        mapCameraPosition = .region(MKCoordinateRegion(
-                            center: aircraft.coordinate,
-                            span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
-                        ))
-                    }
-                    showAircraftList = false
-                }
-            )
-            .presentationDetents([.medium, .large])
         }
         .task {
             viewModel.startTracking(
@@ -336,105 +292,6 @@ struct StatItem: View {
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
         }
-    }
-}
-
-// MARK: - Aircraft List Sheet
-struct AircraftListSheet: View {
-    let aircraft: [LiveAircraft]
-    let onSelect: (LiveAircraft) -> Void
-    
-    @Environment(\.dismiss) private var dismiss
-    
-    var body: some View {
-        NavigationStack {
-            List {
-                Section("In Flight (\(airborneAircraft.count))") {
-                    ForEach(airborneAircraft) { ac in
-                        AircraftListRow(aircraft: ac)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                onSelect(ac)
-                            }
-                    }
-                }
-                
-                Section("On Ground (\(groundAircraft.count))") {
-                    ForEach(groundAircraft) { ac in
-                        AircraftListRow(aircraft: ac)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                onSelect(ac)
-                            }
-                    }
-                }
-            }
-            .navigationTitle("Aircraft")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
-            }
-        }
-    }
-    
-    private var airborneAircraft: [LiveAircraft] {
-        aircraft.filter { !$0.onGround }.sorted { ($0.altitude ?? 0) > ($1.altitude ?? 0) }
-    }
-    
-    private var groundAircraft: [LiveAircraft] {
-        aircraft.filter { $0.onGround }
-    }
-}
-
-// MARK: - Aircraft List Row
-struct AircraftListRow: View {
-    let aircraft: LiveAircraft
-    
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: aircraft.onGround ? "airplane.circle" : "airplane")
-                .font(.title2)
-                .foregroundStyle(aircraft.onGround ? .gray : .blue)
-                .rotationEffect(.radians(aircraft.rotationAngle - .pi / 2))
-                .frame(width: 32)
-            
-            VStack(alignment: .leading, spacing: 2) {
-                Text(aircraft.displayName)
-                    .font(.headline)
-                
-                Text(aircraft.originCountry)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            
-            Spacer()
-            
-            if !aircraft.onGround {
-                VStack(alignment: .trailing, spacing: 2) {
-                    if let alt = aircraft.altitudeInFeet {
-                        Text("\(alt) ft")
-                            .font(.subheadline)
-                    }
-                    
-                    if let speed = aircraft.velocityInKnots {
-                        Text("\(speed) kts")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-            
-            Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-        }
-        .padding(.vertical, 4)
     }
 }
 

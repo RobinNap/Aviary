@@ -20,11 +20,29 @@ final class LiveAircraftViewModel: ObservableObject {
     @Published var isTracking = false
     
     private let service = LiveAircraftService.shared
+    private let providerManager = AircraftProviderManager.shared
     private var updateTask: Task<Void, Never>?
     private var currentCenter: CLLocationCoordinate2D?
+    private var providerChangeObserver: AnyCancellable?
     
-    // Update interval in seconds - as fast as possible while respecting API limits
-    private let updateInterval: TimeInterval = 2
+    init() {
+        // Listen for provider changes
+        providerChangeObserver = NotificationCenter.default.publisher(for: .aircraftProviderChanged)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    // Restart tracking with new provider
+                    if let self = self, let center = self.currentCenter, self.isTracking {
+                        self.stopTracking()
+                        self.startTracking(around: center)
+                    }
+                }
+            }
+    }
+    
+    /// Get update interval from current provider
+    private var updateInterval: TimeInterval {
+        providerManager.provider.minRequestInterval
+    }
     
     /// Start tracking aircraft around the given coordinate
     func startTracking(around center: CLLocationCoordinate2D, radiusDegrees: Double = 0.5) {
