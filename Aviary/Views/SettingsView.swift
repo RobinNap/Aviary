@@ -7,23 +7,23 @@
 
 import SwiftUI
 
-/// Settings view for configuring aircraft data providers and flight data sources
+/// Settings view for configuring OpenSky Network data provider
+/// API Documentation: https://openskynetwork.github.io/opensky-api/rest.html
 struct SettingsView: View {
     private let aircraftSettings = AircraftSettings.shared
-    private let flightSettings = FlightServiceSettings.shared
     @State private var selectedProvider: AircraftProviderType
-    @State private var selectedFlightService: FlightServiceType
     @State private var credentials: [String: String] = [:]
     @State private var showingCredentials = false
     @State private var errorMessage: String?
     @State private var showingError = false
     @State private var isSaving = false
     
+    @AppStorage("app.uiMode") private var uiModeRaw: String = UIMode.pro.rawValue
+    
     @Environment(\.dismiss) private var dismiss
     
     init() {
         _selectedProvider = State(initialValue: AircraftSettings.shared.selectedProvider)
-        _selectedFlightService = State(initialValue: FlightServiceSettings.shared.selectedService)
     }
     
     var body: some View {
@@ -39,11 +39,6 @@ struct SettingsView: View {
                             ) {
                                 selectedProvider = provider
                                 loadCredentials(for: provider)
-                                
-                                // If FlightRadar24 is selected, automatically set it for flights
-                                if provider == .flightradar24 {
-                                    selectedFlightService = .flightradar24
-                                }
                                 
                                 if provider.requiresAuth {
                                     showingCredentials = true
@@ -75,18 +70,13 @@ struct SettingsView: View {
                         } else {
                             saveProvider()
                         }
-                        
-                        // If FlightRadar24 is selected for aircraft, automatically set it for flights
-                        if newValue == .flightradar24 {
-                            selectedFlightService = .flightradar24
-                        }
                     }
                     #endif
                 } header: {
-                    Label("Aircraft Data Provider", systemImage: "airplane")
+                    Label("Data Source", systemImage: "airplane")
                         .font(.headline)
                 } footer: {
-                    Text("Select the data source for real-time aircraft tracking. Some providers require API keys or authentication.")
+                    Text("OpenSky Network provides free real-time aircraft tracking and flight schedule data. Both aircraft positions and flight arrivals/departures use the same source. Create a free account and API client at opensky-network.org for faster updates (1 request/second vs 1 per 10 seconds).")
                         .font(.caption)
                 }
                 
@@ -120,7 +110,7 @@ struct SettingsView: View {
                                                 Image(systemName: "checkmark.circle.fill")
                                                     .font(.system(size: 12))
                                             }
-                                            Text("Save Credentials")
+                                            Text(isSaving ? "Verifying..." : "Save & Verify")
                                         }
                                         .frame(minWidth: 140)
                                     }
@@ -167,17 +157,58 @@ struct SettingsView: View {
                         Label("Authentication", systemImage: "lock.shield")
                             .font(.headline)
                     } footer: {
-                        authenticationFooter
+                        Text("Create a free account at opensky-network.org and create an API client to get Client ID and Client Secret. This gives you 1 request per second instead of 1 per 10 seconds. Legacy username/password authentication is also supported but deprecated.")
                             .font(.caption)
                     }
                 }
                 
                 Section {
+                    Picker("Interface Mode", selection: Binding(
+                        get: { 
+                            UIMode(rawValue: uiModeRaw) ?? .pro
+                        },
+                        set: { newMode in
+                            uiModeRaw = newMode.rawValue
+                            // Force update by posting notification
+                            NotificationCenter.default.post(name: .uiModeChanged, object: nil)
+                        }
+                    )) {
+                        ForEach(UIMode.allCases, id: \.self) { mode in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(mode.displayName)
+                                    .font(.body)
+                                Text(mode.description)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .tag(mode)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                } header: {
+                    Label("Interface", systemImage: "slider.horizontal.3")
+                        .font(.headline)
+                } footer: {
+                    Text("Simplified mode shows a clean interface with floating ATC player. Pro mode includes side panel with weather, time, and allows selecting planes for details.")
+                        .font(.caption)
+                }
+                
+                Section {
                     HStack {
-                        Label("Current Provider", systemImage: "checkmark.circle.fill")
+                        Label("Current Mode", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.secondary)
                         Spacer()
                         ProviderStatusBadge(status: providerStatus, isConfigured: hasStoredCredentials || !selectedProvider.requiresAuth)
+                    }
+                    .padding(.vertical, 2)
+                    
+                    HStack {
+                        Label("Rate Limit", systemImage: "clock")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(selectedProvider == .openSkyAuthenticated && hasStoredCredentials ? "1 request/second" : "1 request/10 seconds")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                     }
                     .padding(.vertical, 2)
                 } header: {
@@ -185,63 +216,31 @@ struct SettingsView: View {
                         .font(.headline)
                 }
                 
-                // Flight Data Source Section
                 Section {
-                    #if os(macOS)
-                    VStack(alignment: .leading, spacing: 12) {
-                        ForEach(FlightServiceType.allCases) { service in
-                            FlightServiceSelectionRow(
-                                service: service,
-                                isSelected: selectedFlightService == service,
-                                isConfigured: hasFlightServiceCredentials(for: service),
-                                isDisabled: selectedProvider == .flightradar24 && service != .flightradar24
-                            ) {
-                                if selectedProvider != .flightradar24 {
-                                    selectedFlightService = service
-                                    saveFlightService()
-                                }
-                            }
+                    Link(destination: URL(string: "https://opensky-network.org/")!) {
+                        HStack {
+                            Image(systemName: "globe")
+                            Text("OpenSky Network Website")
+                            Spacer()
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
-                    .padding(.vertical, 4)
-                    #else
-                    Picker("Flight Data Source", selection: $selectedFlightService) {
-                        ForEach(FlightServiceType.allCases) { service in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(service.displayName)
-                                    .font(.body)
-                                Text(service.description)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                if service.requiresAuth && !hasFlightServiceCredentials(for: service) {
-                                    Text("⚠️ Requires API key in Aircraft Data Provider settings")
-                                        .font(.caption2)
-                                        .foregroundStyle(.orange)
-                                }
-                            }
-                            .tag(service)
+                    
+                    Link(destination: URL(string: "https://openskynetwork.github.io/opensky-api/rest.html")!) {
+                        HStack {
+                            Image(systemName: "doc.text")
+                            Text("API Documentation")
+                            Spacer()
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
-                    .pickerStyle(.menu)
-                    .onChange(of: selectedFlightService) { _, _ in
-                        saveFlightService()
-                    }
-                    .disabled(selectedProvider == .flightradar24)
-                    #endif
                 } header: {
-                    Label("Flight Data Source", systemImage: "airplane.departure")
+                    Label("Resources", systemImage: "link")
                         .font(.headline)
-                } footer: {
-                    if selectedProvider == .flightradar24 {
-                        Text("Flightradar24 is selected for aircraft data. Flight data will automatically use the same FlightRadar24 API.")
-                            .font(.caption)
-                    } else if selectedFlightService == .flightradar24 {
-                        Text("Flightradar24 requires an API key. Configure it in the Aircraft Data Provider section above using the same credentials.")
-                            .font(.caption)
-                    } else {
-                        Text("Select the data source for arrivals and departures. Some sources have rate limits.")
-                            .font(.caption)
-                    }
                 }
             }
             .formStyle(.grouped)
@@ -276,11 +275,6 @@ struct SettingsView: View {
             }
             .onAppear {
                 loadCredentials(for: selectedProvider)
-                
-                // If FlightRadar24 is selected for aircraft, automatically set it for flights
-                if selectedProvider == .flightradar24 {
-                    selectedFlightService = .flightradar24
-                }
             }
         }
     }
@@ -297,26 +291,12 @@ struct SettingsView: View {
     private var providerStatus: String {
         if selectedProvider.requiresAuth {
             if hasStoredCredentials {
-                return "Configured"
+                return "Authenticated"
             } else {
                 return "Not Configured"
             }
         } else {
-            return "Active"
-        }
-    }
-    
-    @ViewBuilder
-    private var authenticationFooter: some View {
-        switch selectedProvider {
-        case .openSky:
-            EmptyView()
-        case .openSkyAuthenticated:
-            Text("Create a free account at opensky-network.org to get 1 request per second instead of 1 per 10 seconds.")
-        case .flightradar24:
-            Text("Requires a Flightradar24 API subscription. Visit flightradar24.com for API access.")
-        case .aviationstack:
-            Text("Get a free API key at aviationstack.com. Free plan includes 100 requests/month. Paid plans start at $49.99/month.")
+            return "Anonymous"
         }
     }
     
@@ -344,27 +324,43 @@ struct SettingsView: View {
                         return
                     }
                     
-                    // Test API credentials before saving (for FlightRadar24)
-                    if selectedProvider == .flightradar24 {
-                        if let apiKey = credentials["api_key"] {
-                            do {
-                                let provider = Flightradar24AircraftProvider()
-                                let isValid = try await provider.testCredentials(apiKey: apiKey)
-                                if !isValid {
-                                    errorMessage = "API key authentication failed. Please check your API key."
-                                    showingError = true
-                                    isSaving = false
-                                    return
-                                }
-                            } catch {
-                                // If test fails, still allow saving but show warning
-                                errorMessage = "Could not verify API key: \(error.localizedDescription). Credentials saved, but API may not work correctly."
-                                showingError = true
-                                // Continue to save anyway
-                            }
-                        }
+                    // Verify credentials before saving
+                    // Support both OAuth2 (clientId/clientSecret) and legacy (username/password)
+                    let hasOAuth2 = !(credentials["clientId"]?.isEmpty ?? true) && !(credentials["clientSecret"]?.isEmpty ?? true)
+                    let hasLegacy = !(credentials["username"]?.isEmpty ?? true) && !(credentials["password"]?.isEmpty ?? true)
+                    
+                    guard hasOAuth2 || hasLegacy else {
+                        errorMessage = "Please provide either Client ID and Client Secret (OAuth2) or Username and Password (legacy)"
+                        showingError = true
+                        isSaving = false
+                        return
                     }
                     
+                    // Test credentials with OpenSky API
+                    let testProvider = OpenSkyAircraftProvider(authenticated: true)
+                    let isValid: Bool
+                    
+                    if hasOAuth2, let clientId = credentials["clientId"], let clientSecret = credentials["clientSecret"] {
+                        isValid = try await testProvider.testCredentials(clientId: clientId, clientSecret: clientSecret)
+                    } else if hasLegacy, let username = credentials["username"], let password = credentials["password"] {
+                        // Legacy Basic Auth - for now just check format, actual test would need Basic Auth support
+                        isValid = !username.isEmpty && !password.isEmpty
+                    } else {
+                        isValid = false
+                    }
+                    
+                    if !isValid {
+                        if hasOAuth2 {
+                            errorMessage = "Invalid credentials. Please check your Client ID and Client Secret. Make sure you have created an API client at opensky-network.org."
+                        } else {
+                            errorMessage = "Invalid credentials. Please check your username and password. Note: Basic Auth is deprecated. Use OAuth2 (Client ID/Secret) instead."
+                        }
+                        showingError = true
+                        isSaving = false
+                        return
+                    }
+                    
+                    // Credentials are valid, save them
                     aircraftSettings.saveCredentials(credentials, for: selectedProvider)
                     try AircraftProviderManager.shared.switchProvider(
                         to: selectedProvider,
@@ -379,15 +375,8 @@ struct SettingsView: View {
                 
                 aircraftSettings.selectedProvider = selectedProvider
                 
-                // If FlightRadar24 is selected, automatically set it for flights too
-                if selectedProvider == .flightradar24 {
-                    flightSettings.selectedService = .flightradar24
-                    Flightradar24FlightService.shared.updateCredentials()
-                }
-                
                 // Reload provider in view model
                 NotificationCenter.default.post(name: .aircraftProviderChanged, object: nil)
-                NotificationCenter.default.post(name: .flightServiceChanged, object: nil)
                 
                 isSaving = false
             } catch {
@@ -403,113 +392,19 @@ struct SettingsView: View {
         credentials = [:]
         showingCredentials = false
         
-        // Reset to default if current provider
-        if aircraftSettings.selectedProvider == selectedProvider {
+        // Reset to anonymous if current provider requires auth
+        if aircraftSettings.selectedProvider == selectedProvider && selectedProvider.requiresAuth {
             aircraftSettings.selectedProvider = .openSky
             selectedProvider = .openSky
             try? AircraftProviderManager.shared.switchProvider(to: .openSky, credentials: nil)
             NotificationCenter.default.post(name: .aircraftProviderChanged, object: nil)
         }
     }
-    
-    private func saveFlightService() {
-        flightSettings.selectedService = selectedFlightService
-        
-        // Update Flightradar24 service credentials if needed
-        if selectedFlightService == .flightradar24 {
-            Flightradar24FlightService.shared.updateCredentials()
-        }
-        
-        NotificationCenter.default.post(name: .flightServiceChanged, object: nil)
-    }
-    
-    private func hasFlightServiceCredentials(for service: FlightServiceType) -> Bool {
-        if service == .flightradar24 {
-            return aircraftSettings.getCredentials(for: .flightradar24) != nil
-        }
-        return true // OpenSky doesn't require credentials
-    }
 }
 
 // MARK: - Helper Views
 
 #if os(macOS)
-/// Radio button style flight service selection row for macOS
-struct FlightServiceSelectionRow: View {
-    let service: FlightServiceType
-    let isSelected: Bool
-    let isConfigured: Bool
-    let isDisabled: Bool
-    let action: () -> Void
-    
-    init(service: FlightServiceType, isSelected: Bool, isConfigured: Bool, isDisabled: Bool = false, action: @escaping () -> Void) {
-        self.service = service
-        self.isSelected = isSelected
-        self.isConfigured = isConfigured
-        self.isDisabled = isDisabled
-        self.action = action
-    }
-    
-    var body: some View {
-        Button(action: action) {
-            HStack(alignment: .top, spacing: 12) {
-                // Radio button indicator
-                ZStack {
-                    Circle()
-                        .stroke(isSelected ? Color.accentColor : (isDisabled ? Color.secondary.opacity(0.5) : Color.secondary), lineWidth: 2)
-                        .frame(width: 18, height: 18)
-                    
-                    if isSelected {
-                        Circle()
-                            .fill(Color.accentColor)
-                            .frame(width: 10, height: 10)
-                    }
-                }
-                .padding(.top, 2)
-                
-                // Service info
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(service.displayName)
-                        .font(.body)
-                        .foregroundStyle(isDisabled ? .secondary : .primary)
-                    
-                    Text(service.description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    
-                    if isDisabled {
-                        Text("Automatically selected with FlightRadar24 aircraft provider")
-                            .font(.caption2)
-                            .foregroundStyle(.blue)
-                    } else if service.requiresAuth && !isConfigured {
-                        Text("⚠️ Requires API key in Aircraft Data Provider settings")
-                            .font(.caption2)
-                            .foregroundStyle(.orange)
-                    }
-                }
-                
-                Spacer()
-                
-                // Status indicator
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                        .font(.system(size: 14))
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(isDisabled)
-        .padding(.vertical, 6)
-        .padding(.horizontal, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(isSelected ? Color.accentColor.opacity(0.1) : (isDisabled ? Color.secondary.opacity(0.05) : Color.clear))
-        )
-    }
-}
-
 /// Radio button style provider selection row for macOS
 struct ProviderSelectionRow: View {
     let provider: AircraftProviderType
@@ -619,11 +514,9 @@ struct AuthFieldView: View {
 // MARK: - Notification Names
 extension Notification.Name {
     static let aircraftProviderChanged = Notification.Name("aircraftProviderChanged")
-    static let flightServiceChanged = Notification.Name("flightServiceChanged")
+    static let uiModeChanged = Notification.Name("uiModeChanged")
 }
-
 
 #Preview {
     SettingsView()
 }
-

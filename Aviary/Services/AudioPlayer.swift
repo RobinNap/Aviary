@@ -341,7 +341,7 @@ final class AudioPlayer: ObservableObject {
         #if os(iOS)
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default, options: [.allowAirPlay, .allowBluetooth])
+            try session.setCategory(.playback, mode: .default, options: [.allowAirPlay, .allowBluetoothHFP])
             try session.setActive(true)
         } catch {
             print("AudioPlayer: Failed to setup audio session: \(error)")

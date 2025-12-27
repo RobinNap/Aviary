@@ -33,37 +33,28 @@ protocol AircraftDataProvider {
 }
 
 /// Supported aircraft data providers
+/// Using OpenSky Network API: https://openskynetwork.github.io/opensky-api/rest.html
 enum AircraftProviderType: String, CaseIterable, Identifiable {
     case openSky = "opensky"
     case openSkyAuthenticated = "opensky_auth"
-    case flightradar24 = "flightradar24"
-    case aviationstack = "aviationstack"
     
     var id: String { rawValue }
     
     var displayName: String {
         switch self {
         case .openSky:
-            return "OpenSky Network (Anonymous)"
+            return "OpenSky Network (Free)"
         case .openSkyAuthenticated:
             return "OpenSky Network (Authenticated)"
-        case .flightradar24:
-            return "Flightradar24"
-        case .aviationstack:
-            return "Aviationstack"
         }
     }
     
     var description: String {
         switch self {
         case .openSky:
-            return "Free, 1 request per 10 seconds"
+            return "Free, anonymous access - 1 request per 10 seconds"
         case .openSkyAuthenticated:
-            return "Free with account, 1 request per second"
-        case .flightradar24:
-            return "Paid subscription, near real-time"
-        case .aviationstack:
-            return "Free plan: 100 requests/month, Paid from $49.99/month"
+            return "Free account with OAuth2 credentials - 1 request per second, more data"
         }
     }
     
@@ -72,10 +63,6 @@ enum AircraftProviderType: String, CaseIterable, Identifiable {
         case .openSky:
             return false
         case .openSkyAuthenticated:
-            return true
-        case .flightradar24:
-            return true
-        case .aviationstack:
             return true
         }
     }
@@ -86,16 +73,8 @@ enum AircraftProviderType: String, CaseIterable, Identifiable {
             return []
         case .openSkyAuthenticated:
             return [
-                AuthField(key: "username", label: "Username", isSecure: false),
-                AuthField(key: "password", label: "Password", isSecure: true)
-            ]
-        case .flightradar24:
-            return [
-                AuthField(key: "api_key", label: "API Key", isSecure: true)
-            ]
-        case .aviationstack:
-            return [
-                AuthField(key: "api_key", label: "API Key", isSecure: true)
+                AuthField(key: "clientId", label: "Client ID", isSecure: false),
+                AuthField(key: "clientSecret", label: "Client Secret", isSecure: true)
             ]
         }
     }
@@ -108,4 +87,3 @@ struct AuthField: Identifiable {
     let label: String
     let isSecure: Bool
 }
-

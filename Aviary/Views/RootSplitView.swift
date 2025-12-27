@@ -16,6 +16,21 @@ struct RootSplitView: View {
     @State private var selectedAirport: Airport?
     @State private var searchText = ""
     
+    @AppStorage("app.uiMode") private var uiModeRaw: String = UIMode.pro.rawValue
+    
+    private var uiMode: UIMode {
+        UIMode(rawValue: uiModeRaw) ?? .pro
+    }
+    
+    private var shouldShowCenterPlayer: Bool {
+        // Show center player in Simplified mode, or on iPhone (where there's no side panel)
+        #if os(iOS)
+        return uiMode == .simplified || UIDevice.current.userInterfaceIdiom != .pad
+        #else
+        return uiMode == .simplified
+        #endif
+    }
+    
     var body: some View {
         NavigationStack {
             ZStack {
@@ -33,8 +48,8 @@ struct RootSplitView: View {
                     }
                 }
                 
-                // ATC Player overlay - shows when airport is selected
-                if let airport = selectedAirport {
+                // ATC Player overlay - shows in Simplified mode or on iPhone
+                if let airport = selectedAirport, shouldShowCenterPlayer {
                     VStack {
                         Spacer()
                         AirportATCPlayerView(airport: airport)
@@ -78,6 +93,10 @@ struct RootSplitView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: selectedAirport)
+        .id(uiModeRaw) // Force view refresh when UI mode changes
+        .onChange(of: uiModeRaw) { _, _ in
+            // Force view update when mode changes
+        }
     }
 }
 

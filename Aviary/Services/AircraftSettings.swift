@@ -7,6 +7,26 @@
 
 import Foundation
 
+/// UI Mode for the app
+enum UIMode: String, CaseIterable {
+    case simplified
+    case pro
+    
+    var displayName: String {
+        switch self {
+        case .simplified: return "Simplified"
+        case .pro: return "Pro"
+        }
+    }
+    
+    var description: String {
+        switch self {
+        case .simplified: return "Clean interface with floating ATC player. No side panel or plane details."
+        case .pro: return "Full-featured interface with side panel, weather, and plane details."
+        }
+    }
+}
+
 /// Manages aircraft data provider settings
 final class AircraftSettings {
     static let shared = AircraftSettings()
@@ -14,6 +34,7 @@ final class AircraftSettings {
     private let userDefaults = UserDefaults.standard
     private let selectedProviderKey = "aircraft.selectedProvider"
     private let credentialsKeyPrefix = "aircraft.credentials."
+    private let uiModeKey = "app.uiMode"
     
     private init() {}
     
@@ -28,6 +49,20 @@ final class AircraftSettings {
         }
         set {
             userDefaults.set(newValue.rawValue, forKey: selectedProviderKey)
+        }
+    }
+    
+    /// Current UI mode
+    var uiMode: UIMode {
+        get {
+            if let rawValue = userDefaults.string(forKey: uiModeKey),
+               let mode = UIMode(rawValue: rawValue) {
+                return mode
+            }
+            return .pro // Default to Pro
+        }
+        set {
+            userDefaults.set(newValue.rawValue, forKey: uiModeKey)
         }
     }
     

@@ -36,34 +36,33 @@ final class AircraftProviderManager {
         
         switch providerType {
         case .openSky:
+            // Anonymous mode - ensure no credentials are used
             currentProvider = OpenSkyAircraftProvider(authenticated: false)
+            OpenSkyFlightService.shared.clearAuth()
+            // Clear any stored credentials for anonymous mode (shouldn't have any, but be safe)
+            settings.clearCredentials(for: .openSky)
             
         case .openSkyAuthenticated:
             let provider = OpenSkyAircraftProvider(authenticated: true)
             if let credentials = settings.getCredentials(for: .openSkyAuthenticated) {
-                try? provider.configureAuth(credentials: credentials)
-            }
-            currentProvider = provider
-            
-        case .flightradar24:
-            let provider = Flightradar24AircraftProvider()
-            if let credentials = settings.getCredentials(for: .flightradar24) {
-                try? provider.configureAuth(credentials: credentials)
-            }
-            currentProvider = provider
-            
-            // Automatically sync flight service to FlightRadar24
-            let flightSettings = FlightServiceSettings.shared
-            if flightSettings.selectedService != .flightradar24 {
-                flightSettings.selectedService = .flightradar24
-                Flightradar24FlightService.shared.updateCredentials()
-                NotificationCenter.default.post(name: .flightServiceChanged, object: nil)
-            }
-            
-        case .aviationstack:
-            let provider = AviationstackAircraftProvider()
-            if let credentials = settings.getCredentials(for: .aviationstack) {
-                try? provider.configureAuth(credentials: credentials)
+                // Check for OAuth2 credentials (clientId/clientSecret) or legacy (username/password)
+                let hasOAuth2 = !(credentials["clientId"]?.isEmpty ?? true) && !(credentials["clientSecret"]?.isEmpty ?? true)
+                let hasLegacy = !(credentials["username"]?.isEmpty ?? true) && !(credentials["password"]?.isEmpty ?? true)
+                
+                if hasOAuth2 || hasLegacy {
+                    // Only configure if credentials are valid
+                    try? provider.configureAuth(credentials: credentials)
+                    // Also configure flight service with same credentials
+                    if hasOAuth2, let clientId = credentials["clientId"], let clientSecret = credentials["clientSecret"] {
+                        OpenSkyFlightService.shared.configureAuth(clientId: clientId, clientSecret: clientSecret)
+                    } else if hasLegacy, let username = credentials["username"], let password = credentials["password"] {
+                        OpenSkyFlightService.shared.configureAuth(username: username, password: password)
+                    }
+                } else {
+                    print("AircraftProviderManager: Authenticated mode selected but no valid credentials found")
+                }
+            } else {
+                print("AircraftProviderManager: Authenticated mode selected but no credentials found")
             }
             currentProvider = provider
         }
@@ -75,26 +74,33 @@ final class AircraftProviderManager {
         
         switch type {
         case .openSky:
+            // Anonymous mode - ensure no credentials are used
             newProvider = OpenSkyAircraftProvider(authenticated: false)
+            OpenSkyFlightService.shared.clearAuth()
+            // Clear any stored credentials for anonymous mode
+            settings.clearCredentials(for: .openSky)
             
         case .openSkyAuthenticated:
             let provider = OpenSkyAircraftProvider(authenticated: true)
             if let credentials = credentials {
-                try provider.configureAuth(credentials: credentials)
-            }
-            newProvider = provider
-            
-        case .flightradar24:
-            let provider = Flightradar24AircraftProvider()
-            if let credentials = credentials {
-                try provider.configureAuth(credentials: credentials)
-            }
-            newProvider = provider
-            
-        case .aviationstack:
-            let provider = AviationstackAircraftProvider()
-            if let credentials = credentials {
-                try provider.configureAuth(credentials: credentials)
+                // Check for OAuth2 credentials (clientId/clientSecret) or legacy (username/password)
+                let hasOAuth2 = !(credentials["clientId"]?.isEmpty ?? true) && !(credentials["clientSecret"]?.isEmpty ?? true)
+                let hasLegacy = !(credentials["username"]?.isEmpty ?? true) && !(credentials["password"]?.isEmpty ?? true)
+                
+                if hasOAuth2 || hasLegacy {
+                    // Only configure if credentials are valid
+                    try provider.configureAuth(credentials: credentials)
+                    // Also configure flight service with same credentials
+                    if hasOAuth2, let clientId = credentials["clientId"], let clientSecret = credentials["clientSecret"] {
+                        OpenSkyFlightService.shared.configureAuth(clientId: clientId, clientSecret: clientSecret)
+                    } else if hasLegacy, let username = credentials["username"], let password = credentials["password"] {
+                        OpenSkyFlightService.shared.configureAuth(username: username, password: password)
+                    }
+                } else {
+                    print("AircraftProviderManager: Authenticated mode selected but credentials are invalid")
+                }
+            } else {
+                print("AircraftProviderManager: Authenticated mode selected but no credentials provided")
             }
             newProvider = provider
         }
@@ -103,17 +109,6 @@ final class AircraftProviderManager {
         settings.selectedProvider = type
         if let credentials = credentials {
             settings.saveCredentials(credentials, for: type)
-        }
-        
-        // If FlightRadar24 is selected for aircraft, automatically use it for flights too
-        if type == .flightradar24 {
-            let flightSettings = FlightServiceSettings.shared
-            if flightSettings.selectedService != .flightradar24 {
-                flightSettings.selectedService = .flightradar24
-                // Update flight service credentials
-                Flightradar24FlightService.shared.updateCredentials()
-                NotificationCenter.default.post(name: .flightServiceChanged, object: nil)
-            }
         }
     }
     
@@ -125,6 +120,19 @@ final class AircraftProviderManager {
         
         try provider.configureAuth(credentials: credentials)
         settings.saveCredentials(credentials, for: settings.selectedProvider)
+        
+        // Also update flight service if authenticated
+        if settings.selectedProvider == .openSkyAuthenticated {
+            // Check for OAuth2 credentials (clientId/clientSecret) or legacy (username/password)
+            if let clientId = credentials["clientId"],
+               let clientSecret = credentials["clientSecret"],
+               !clientId.isEmpty && !clientSecret.isEmpty {
+                OpenSkyFlightService.shared.configureAuth(clientId: clientId, clientSecret: clientSecret)
+            } else if let username = credentials["username"],
+                      let password = credentials["password"],
+                      !username.isEmpty && !password.isEmpty {
+                OpenSkyFlightService.shared.configureAuth(username: username, password: password)
+            }
+        }
     }
 }
-

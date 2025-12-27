@@ -16,6 +16,12 @@ struct AirportMapView: View {
     @State private var selectedAircraft: LiveAircraft?
     @State private var mapCameraPosition: MapCameraPosition
     
+    @AppStorage("app.uiMode") private var uiModeRaw: String = UIMode.pro.rawValue
+    
+    private var isSimplifiedMode: Bool {
+        (UIMode(rawValue: uiModeRaw) ?? .pro) == .simplified
+    }
+    
     init(airport: Airport) {
         self.airport = airport
         let region = MKCoordinateRegion(
@@ -53,9 +59,17 @@ struct AirportMapView: View {
                 MapCompass()
                 MapScaleView()
             }
+            .onChange(of: selectedAircraft) { _, newValue in
+                // In Simplified mode, prevent selection by immediately clearing it
+                if isSimplifiedMode && newValue != nil {
+                    DispatchQueue.main.async {
+                        selectedAircraft = nil
+                    }
+                }
+            }
             
-            // Selected aircraft detail sheet
-            if let aircraft = selectedAircraft {
+            // Selected aircraft detail sheet (only in Pro mode)
+            if !isSimplifiedMode, let aircraft = selectedAircraft {
                 VStack {
                     Spacer()
                     AircraftDetailCard(aircraft: aircraft) {
