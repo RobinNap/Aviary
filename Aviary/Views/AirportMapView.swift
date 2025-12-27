@@ -52,7 +52,6 @@ struct AirportMapView: View {
             .mapControls {
                 MapCompass()
                 MapScaleView()
-                MapUserLocationButton()
             }
             
             // Selected aircraft detail sheet
