@@ -16,10 +16,6 @@ struct AirportDetailView: View {
     
     var body: some View {
         AirportMapView(airport: airport)
-            .navigationTitle(airport.shortCode)
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: 2) {

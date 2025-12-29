@@ -48,7 +48,7 @@ struct RootSplitView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            .navigationTitle(selectedAirport?.shortCode ?? "Aviary")
+            .navigationTitle(selectedAirport == nil ? "Aviary" : "")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
