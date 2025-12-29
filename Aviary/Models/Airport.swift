@@ -118,3 +118,4 @@ extension Airport {
     static let samples: [Airport] = [sampleLAX, sampleJFK, sampleLHR, sampleAMS]
 }
 
+

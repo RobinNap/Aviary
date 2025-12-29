@@ -16,12 +16,6 @@ struct AirportMapView: View {
     @State private var selectedAircraft: LiveAircraft?
     @State private var mapCameraPosition: MapCameraPosition
     
-    @AppStorage("app.uiMode") private var uiModeRaw: String = UIMode.pro.rawValue
-    
-    private var isSimplifiedMode: Bool {
-        (UIMode(rawValue: uiModeRaw) ?? .pro) == .simplified
-    }
-    
     init(airport: Airport) {
         self.airport = airport
         let region = MKCoordinateRegion(
@@ -60,27 +54,12 @@ struct AirportMapView: View {
                 MapScaleView()
             }
             .onChange(of: selectedAircraft) { _, newValue in
-                // In Simplified mode, prevent selection by immediately clearing it
-                if isSimplifiedMode && newValue != nil {
+                // Prevent selection by immediately clearing it
+                if newValue != nil {
                     DispatchQueue.main.async {
                         selectedAircraft = nil
                     }
                 }
-            }
-            
-            // Selected aircraft detail sheet (only in Pro mode)
-            if !isSimplifiedMode, let aircraft = selectedAircraft {
-                VStack {
-                    Spacer()
-                    AircraftDetailCard(aircraft: aircraft) {
-                        withAnimation {
-                            selectedAircraft = nil
-                        }
-                    }
-                    .padding(.horizontal)
-                    .padding(.bottom, 100) // Extra padding to avoid overlap with audio player
-                }
-                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .task {
@@ -154,112 +133,6 @@ struct AircraftAnnotationView: View {
             }
         }
         return .blue // Level flight
-    }
-}
-
-// MARK: - Aircraft Detail Card
-struct AircraftDetailCard: View {
-    let aircraft: LiveAircraft
-    let onDismiss: () -> Void
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Header
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(aircraft.displayName)
-                        .font(.title2)
-                        .fontWeight(.bold)
-                    
-                    Text(aircraft.originCountry)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                
-                Spacer()
-                
-                Button(action: onDismiss) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            
-            Divider()
-            
-            // Stats grid
-            LazyVGrid(columns: [
-                GridItem(.flexible()),
-                GridItem(.flexible()),
-                GridItem(.flexible())
-            ], spacing: 12) {
-                StatItem(
-                    title: "Altitude",
-                    value: aircraft.altitudeInFeet.map { "\($0) ft" } ?? "—",
-                    icon: "arrow.up.forward"
-                )
-                
-                StatItem(
-                    title: "Speed",
-                    value: aircraft.velocityInKnots.map { "\($0) kts" } ?? "—",
-                    icon: "speedometer"
-                )
-                
-                StatItem(
-                    title: "Heading",
-                    value: aircraft.heading.map { "\(Int($0))°" } ?? "—",
-                    icon: "safari"
-                )
-            }
-            
-            // Status
-            HStack {
-                Image(systemName: aircraft.onGround ? "parkingsign.circle.fill" : "airplane.circle.fill")
-                    .foregroundStyle(aircraft.onGround ? .orange : .green)
-                
-                Text(aircraft.onGround ? "On Ground" : "In Flight")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                
-                Spacer()
-                
-                if let rate = aircraft.verticalRate, !aircraft.onGround {
-                    HStack(spacing: 4) {
-                        Image(systemName: rate > 0 ? "arrow.up.right" : (rate < 0 ? "arrow.down.right" : "arrow.right"))
-                            .foregroundStyle(rate > 0 ? .green : (rate < 0 ? .orange : .blue))
-                        
-                        Text("\(abs(Int(rate * 196.85))) ft/min") // m/s to ft/min
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .padding(.top, 4)
-        }
-        .padding()
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
-    }
-}
-
-// MARK: - Stat Item
-struct StatItem: View {
-    let title: String
-    let value: String
-    let icon: String
-    
-    var body: some View {
-        VStack(spacing: 4) {
-            Image(systemName: icon)
-                .font(.title3)
-                .foregroundStyle(.secondary)
-            
-            Text(value)
-                .font(.headline)
-            
-            Text(title)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-        }
     }
 }
 

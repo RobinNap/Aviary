@@ -16,19 +16,9 @@ struct RootSplitView: View {
     @State private var selectedAirport: Airport?
     @State private var searchText = ""
     
-    @AppStorage("app.uiMode") private var uiModeRaw: String = UIMode.pro.rawValue
-    
-    private var uiMode: UIMode {
-        UIMode(rawValue: uiModeRaw) ?? .pro
-    }
-    
     private var shouldShowCenterPlayer: Bool {
-        // Show center player in Simplified mode, or on iPhone (where there's no side panel)
-        #if os(iOS)
-        return uiMode == .simplified || UIDevice.current.userInterfaceIdiom != .pad
-        #else
-        return uiMode == .simplified
-        #endif
+        // Always show center player
+        return true
     }
     
     var body: some View {
@@ -93,10 +83,6 @@ struct RootSplitView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: selectedAirport)
-        .id(uiModeRaw) // Force view refresh when UI mode changes
-        .onChange(of: uiModeRaw) { _, _ in
-            // Force view update when mode changes
-        }
     }
 }
 
@@ -122,7 +108,7 @@ struct SearchView: View {
                             .font(.title2)
                             .fontWeight(.semibold)
                         
-                        Text("Search for an airport by name, city, or ICAO/IATA code to view arrivals, departures, and listen to ATC.")
+                        Text("Search for an airport by name, city, or ICAO/IATA code to view the map and listen to ATC.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)

@@ -18,8 +18,6 @@ struct SettingsView: View {
     @State private var showingError = false
     @State private var isSaving = false
     
-    @AppStorage("app.uiMode") private var uiModeRaw: String = UIMode.pro.rawValue
-    
     @Environment(\.dismiss) private var dismiss
     
     init() {
@@ -76,7 +74,7 @@ struct SettingsView: View {
                     Label("Data Source", systemImage: "airplane")
                         .font(.headline)
                 } footer: {
-                    Text("OpenSky Network provides free real-time aircraft tracking and flight schedule data. Both aircraft positions and flight arrivals/departures use the same source. Create a free account and API client at opensky-network.org for faster updates (1 request/second vs 1 per 10 seconds).")
+                    Text("OpenSky Network provides free real-time aircraft tracking data. Create a free account and API client at opensky-network.org for faster updates (1 request/second vs 1 per 10 seconds).")
                         .font(.caption)
                 }
                 
@@ -160,37 +158,6 @@ struct SettingsView: View {
                         Text("Create a free account at opensky-network.org and create an API client to get Client ID and Client Secret. This gives you 1 request per second instead of 1 per 10 seconds. Legacy username/password authentication is also supported but deprecated.")
                             .font(.caption)
                     }
-                }
-                
-                Section {
-                    Picker("Interface Mode", selection: Binding(
-                        get: { 
-                            UIMode(rawValue: uiModeRaw) ?? .pro
-                        },
-                        set: { newMode in
-                            uiModeRaw = newMode.rawValue
-                            // Force update by posting notification
-                            NotificationCenter.default.post(name: .uiModeChanged, object: nil)
-                        }
-                    )) {
-                        ForEach(UIMode.allCases, id: \.self) { mode in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(mode.displayName)
-                                    .font(.body)
-                                Text(mode.description)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .tag(mode)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                } header: {
-                    Label("Interface", systemImage: "slider.horizontal.3")
-                        .font(.headline)
-                } footer: {
-                    Text("Simplified mode shows a clean interface with floating ATC player. Pro mode includes side panel with weather, time, and allows selecting planes for details.")
-                        .font(.caption)
                 }
                 
                 Section {
@@ -514,7 +481,6 @@ struct AuthFieldView: View {
 // MARK: - Notification Names
 extension Notification.Name {
     static let aircraftProviderChanged = Notification.Name("aircraftProviderChanged")
-    static let uiModeChanged = Notification.Name("uiModeChanged")
 }
 
 #Preview {
