@@ -7,6 +7,9 @@
 
 import SwiftUI
 import SwiftData
+#if os(macOS)
+import AppKit
+#endif
 
 /// The main navigation structure of the app
 struct RootSplitView: View {
@@ -92,6 +95,10 @@ struct SearchView: View {
     @Binding var selectedAirport: Airport?
     @ObservedObject var airportCatalog: AirportCatalog
     
+    #if os(macOS)
+    @State private var selectedIndex: Int? = nil
+    #endif
+    
     var body: some View {
         Group {
             if searchText.isEmpty {
@@ -123,20 +130,86 @@ struct SearchView: View {
                 ContentUnavailableView.search(text: searchText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                // Search results list
-                List {
-                    ForEach(airportCatalog.searchResults) { airport in
-                        Button {
-                            withAnimation {
-                                selectedAirport = airport
+                // Search results list - optimized for Mac
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(Array(airportCatalog.searchResults.enumerated()), id: \.element.id) { index, airport in
+                                AirportRowView(
+                                    airport: airport,
+                                    isSelected: {
+                                        #if os(macOS)
+                                        return selectedIndex == index
+                                        #else
+                                        return false
+                                        #endif
+                                    }()
+                                )
+                                .id(index)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    withAnimation {
+                                        selectedAirport = airport
+                                    }
+                                }
                             }
-                        } label: {
-                            AirportRowView(airport: airport)
                         }
-                        .buttonStyle(.plain)
+                        .padding(.vertical, 8)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    #if os(macOS)
+                    .background(Color(nsColor: .controlBackgroundColor))
+                    .focusable()
+                    .onAppear {
+                        // Reset selection when results change
+                        selectedIndex = airportCatalog.searchResults.isEmpty ? nil : 0
+                        if !airportCatalog.searchResults.isEmpty {
+                            proxy.scrollTo(0, anchor: .top)
+                        }
+                    }
+                    .onChange(of: airportCatalog.searchResults) { _, _ in
+                        selectedIndex = airportCatalog.searchResults.isEmpty ? nil : 0
+                        if !airportCatalog.searchResults.isEmpty {
+                            proxy.scrollTo(0, anchor: .top)
+                        }
+                    }
+                    .onChange(of: selectedIndex) { _, newIndex in
+                        if let index = newIndex, index < airportCatalog.searchResults.count {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                proxy.scrollTo(index, anchor: .center)
+                            }
+                        }
+                    }
+                    .onKeyPress(.upArrow) {
+                        if let current = selectedIndex, current > 0 {
+                            selectedIndex = current - 1
+                            return .handled
+                        }
+                        return .ignored
+                    }
+                    .onKeyPress(.downArrow) {
+                        if let current = selectedIndex {
+                            if current < airportCatalog.searchResults.count - 1 {
+                                selectedIndex = current + 1
+                                return .handled
+                            }
+                        } else if !airportCatalog.searchResults.isEmpty {
+                            selectedIndex = 0
+                            return .handled
+                        }
+                        return .ignored
+                    }
+                    .onKeyPress(.return) {
+                        if let index = selectedIndex, index < airportCatalog.searchResults.count {
+                            withAnimation {
+                                selectedAirport = airportCatalog.searchResults[index]
+                            }
+                            return .handled
+                        }
+                        return .ignored
+                    }
+                    #endif
                 }
-                .listStyle(.plain)
             }
         }
         .searchable(text: $searchText, prompt: "Search airports...")
@@ -149,33 +222,83 @@ struct SearchView: View {
 // MARK: - Airport Row View
 struct AirportRowView: View {
     let airport: Airport
+    var isSelected: Bool = false
+    @State private var isHovered = false
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
+        HStack(spacing: 12) {
+            // Airport code badge
+            VStack(spacing: 2) {
                 Text(airport.shortCode)
-                    .font(.headline)
-                    .fontWeight(.semibold)
+                    .font(.system(.title3, design: .rounded))
+                    .fontWeight(.bold)
+                    .foregroundStyle(.primary)
                 
                 if let iata = airport.iata, iata != airport.icao {
-                    Text("/ \(airport.icao)")
-                        .font(.caption)
+                    Text(airport.icao)
+                        .font(.system(.caption2, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
             }
+            .frame(width: 60, alignment: .leading)
             
-            Text(airport.name)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            // Airport details
+            VStack(alignment: .leading, spacing: 4) {
+                Text(airport.name)
+                    .font(.system(.body))
+                    .fontWeight(.medium)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                
+                HStack(spacing: 6) {
+                    if let city = airport.city {
+                        Label(city, systemImage: "mappin.circle.fill")
+                            .font(.system(.subheadline))
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    if let country = airport.country {
+                        Text("•")
+                            .foregroundStyle(.tertiary)
+                        Text(country)
+                            .font(.system(.subheadline))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
             
-            if let city = airport.city {
-                Text(city)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+            Spacer()
+            
+            // Chevron indicator
+            Image(systemName: "chevron.right")
+                .font(.system(.caption))
+                .foregroundStyle(.tertiary)
+                .opacity(isHovered ? 1 : 0.3)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        #if os(macOS)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(isSelected || isHovered ? Color.accentColor.opacity(isSelected ? 0.15 : 0.1) : Color.clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isSelected ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
+        )
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovered = hovering
             }
         }
-        .padding(.vertical, 4)
+        #else
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(isHovered ? Color.accentColor.opacity(0.1) : Color.clear)
+        )
+        #endif
+        .padding(.horizontal, 16)
     }
 }
 
