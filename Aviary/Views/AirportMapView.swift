@@ -7,6 +7,9 @@
 
 import SwiftUI
 import MapKit
+#if os(macOS)
+import AppKit
+#endif
 
 /// Live aircraft tracking map view for an airport
 struct AirportMapView: View {
@@ -52,7 +55,13 @@ struct AirportMapView: View {
             .mapControls {
                 MapCompass()
                 MapScaleView()
+                #if os(macOS)
+                MapZoomStepper()
+                #endif
             }
+            #if os(macOS)
+            .overlay(CursorModifier())
+            #endif
             .onChange(of: selectedAircraft) { _, newValue in
                 // Prevent selection by immediately clearing it
                 if newValue != nil {
@@ -135,6 +144,63 @@ struct AircraftAnnotationView: View {
         return .blue // Level flight
     }
 }
+
+// MARK: - Cursor Modifier
+#if os(macOS)
+struct CursorModifier: View {
+    var body: some View {
+        CursorTrackingView()
+            .allowsHitTesting(false)
+    }
+}
+
+struct CursorTrackingView: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = CursorTrackingNSView()
+        return view
+    }
+    
+    func updateNSView(_ nsView: NSView, context: Context) {
+        // Update if needed
+    }
+}
+
+class CursorTrackingNSView: NSView {
+    override func awakeFromNib() {
+        super.awakeFromNib()
+        setupTracking()
+    }
+    
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        setupTracking()
+    }
+    
+    func setupTracking() {
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.activeAlways, .mouseEnteredAndExited, .mouseMoved, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+    }
+    
+    override func mouseEntered(with event: NSEvent) {
+        NSCursor.arrow.set()
+    }
+    
+    override func mouseMoved(with event: NSEvent) {
+        NSCursor.arrow.set()
+    }
+    
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach { removeTrackingArea($0) }
+        setupTracking()
+    }
+}
+#endif
 
 // MARK: - Preview
 #Preview {

@@ -8,7 +8,6 @@
 import SwiftUI
 
 /// Settings view for configuring OpenSky Network data provider
-/// API Documentation: https://openskynetwork.github.io/opensky-api/rest.html
 struct SettingsView: View {
     private let aircraftSettings = AircraftSettings.shared
     @State private var selectedProvider: AircraftProviderType
@@ -194,19 +193,30 @@ struct SettingsView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    
-                    Link(destination: URL(string: "https://openskynetwork.github.io/opensky-api/rest.html")!) {
-                        HStack {
-                            Image(systemName: "doc.text")
-                            Text("API Documentation")
-                            Spacer()
-                            Image(systemName: "arrow.up.right.square")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
                 } header: {
                     Label("Resources", systemImage: "link")
+                        .font(.headline)
+                }
+                
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Built by")
+                                .foregroundStyle(.secondary)
+                            Text("Lumon Labs / Robin Nap")
+                        }
+                        .font(.subheadline)
+                        
+                        HStack {
+                            Text("Icon design by")
+                                .foregroundStyle(.secondary)
+                            Text("Ronald Vermeulen")
+                        }
+                        .font(.subheadline)
+                    }
+                    .padding(.vertical, 4)
+                } header: {
+                    Label("Credits", systemImage: "heart.fill")
                         .font(.headline)
                 }
             }
