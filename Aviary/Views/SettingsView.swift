@@ -199,6 +199,22 @@ struct SettingsView: View {
                 }
                 
                 Section {
+                    Link(destination: URL(string: "mailto:info@lumonlabs.io")!) {
+                        HStack {
+                            Image(systemName: "envelope")
+                            Text("Contact Support")
+                            Spacer()
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    Label("Support", systemImage: "questionmark.circle")
+                        .font(.headline)
+                }
+                
+                Section {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             Text("Built by")

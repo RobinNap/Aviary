@@ -16,7 +16,6 @@ struct AirportMapView: View {
     let airport: Airport
     
     @StateObject private var viewModel = LiveAircraftViewModel()
-    @State private var selectedAircraft: LiveAircraft?
     @State private var mapCameraPosition: MapCameraPosition
     
     init(airport: Airport) {
@@ -31,7 +30,7 @@ struct AirportMapView: View {
     var body: some View {
         ZStack(alignment: .topTrailing) {
             // Map with aircraft
-            Map(position: $mapCameraPosition, selection: $selectedAircraft) {
+            Map(position: $mapCameraPosition) {
                 // Airport marker
                 Annotation(airport.shortCode, coordinate: CLLocationCoordinate2D(
                     latitude: airport.latitude,
@@ -43,12 +42,8 @@ struct AirportMapView: View {
                 // Aircraft markers
                 ForEach(viewModel.aircraft) { aircraft in
                     Annotation(aircraft.displayName, coordinate: aircraft.coordinate) {
-                        AircraftAnnotationView(
-                            aircraft: aircraft,
-                            isSelected: selectedAircraft?.id == aircraft.id
-                        )
+                        AircraftAnnotationView(aircraft: aircraft)
                     }
-                    .tag(aircraft)
                 }
             }
             .mapStyle(.standard(elevation: .realistic, pointsOfInterest: .including([.airport])))
@@ -62,14 +57,6 @@ struct AirportMapView: View {
             #if os(macOS)
             .overlay(CursorModifier())
             #endif
-            .onChange(of: selectedAircraft) { _, newValue in
-                // Prevent selection by immediately clearing it
-                if newValue != nil {
-                    DispatchQueue.main.async {
-                        selectedAircraft = nil
-                    }
-                }
-            }
         }
         .task {
             viewModel.startTracking(
@@ -110,38 +97,22 @@ struct AirportAnnotationView: View {
 // MARK: - Aircraft Annotation View
 struct AircraftAnnotationView: View {
     let aircraft: LiveAircraft
-    let isSelected: Bool
     
     var body: some View {
-        ZStack {
-            // Selection ring
-            if isSelected {
-                Circle()
-                    .stroke(.blue, lineWidth: 2)
-                    .frame(width: 40, height: 40)
-            }
-            
-            // Aircraft icon
-            Image(systemName: aircraft.onGround ? "airplane.circle" : "airplane")
-                .font(.system(size: aircraft.onGround ? 20 : 24))
-                .foregroundStyle(aircraftColor)
-                .rotationEffect(.radians(aircraft.rotationAngle - .pi / 2)) // Adjust for icon orientation
-                .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
-        }
-        .animation(.easeInOut(duration: 0.3), value: isSelected)
+        // Aircraft icon
+        Image(systemName: aircraft.onGround ? "airplane.circle" : "airplane")
+            .font(.system(size: aircraft.onGround ? 20 : 24))
+            .foregroundStyle(aircraftColor)
+            .rotationEffect(.radians(aircraft.rotationAngle - .pi / 2)) // Adjust for icon orientation
+            .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
     }
     
     private var aircraftColor: Color {
         if aircraft.onGround {
             return .gray
-        } else if let rate = aircraft.verticalRate {
-            if rate > 2 {
-                return .green // Climbing
-            } else if rate < -2 {
-                return .orange // Descending
-            }
+        } else {
+            return .blue // In the air
         }
-        return .blue // Level flight
     }
 }
 
