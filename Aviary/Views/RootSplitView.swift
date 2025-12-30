@@ -148,6 +148,33 @@ struct SearchView: View {
                                 .id(index)
                                 .contentShape(Rectangle())
                                 .onTapGesture {
+                                    // #region agent log
+                                    let logPath = "/Users/robinnap/Documents/Coding/Aviary/Aviary/.cursor/debug.log"
+                                    let logEntry: [String: Any] = [
+                                        "timestamp": Int64(Date().timeIntervalSince1970 * 1000),
+                                        "location": "RootSplitView.swift:152",
+                                        "message": "airport selected from search results",
+                                        "data": [
+                                            "airportIcao": airport.icao,
+                                            "airportName": airport.name,
+                                            "selectedIndex": index,
+                                            "searchResultsCount": airportCatalog.searchResults.count
+                                        ],
+                                        "sessionId": "debug-session",
+                                        "runId": "run1",
+                                        "hypothesisId": "E"
+                                    ]
+                                    if let jsonData = try? JSONSerialization.data(withJSONObject: logEntry),
+                                       let jsonString = String(data: jsonData, encoding: .utf8) {
+                                        if let fileHandle = FileHandle(forWritingAtPath: logPath) {
+                                            fileHandle.seekToEndOfFile()
+                                            fileHandle.write((jsonString + "\n").data(using: .utf8)!)
+                                            fileHandle.closeFile()
+                                        } else {
+                                            try? (jsonString + "\n").write(toFile: logPath, atomically: true, encoding: .utf8)
+                                        }
+                                    }
+                                    // #endregion agent log
                                     withAnimation {
                                         selectedAirport = airport
                                     }
@@ -167,7 +194,33 @@ struct SearchView: View {
                             proxy.scrollTo(0, anchor: .top)
                         }
                     }
-                    .onChange(of: airportCatalog.searchResults) { _, _ in
+                    .onChange(of: airportCatalog.searchResults) { _, newResults in
+                        // #region agent log
+                        let logPath = "/Users/robinnap/Documents/Coding/Aviary/Aviary/.cursor/debug.log"
+                        let logEntry: [String: Any] = [
+                            "timestamp": Int64(Date().timeIntervalSince1970 * 1000),
+                            "location": "RootSplitView.swift:170",
+                            "message": "searchResults changed in SearchView",
+                            "data": [
+                                "newResultsCount": newResults.count,
+                                "previousSelectedIndex": selectedIndex ?? -1,
+                                "firstResultIcao": newResults.first?.icao ?? "none"
+                            ],
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "E"
+                        ]
+                        if let jsonData = try? JSONSerialization.data(withJSONObject: logEntry),
+                           let jsonString = String(data: jsonData, encoding: .utf8) {
+                            if let fileHandle = FileHandle(forWritingAtPath: logPath) {
+                                fileHandle.seekToEndOfFile()
+                                fileHandle.write((jsonString + "\n").data(using: .utf8)!)
+                                fileHandle.closeFile()
+                            } else {
+                                try? (jsonString + "\n").write(toFile: logPath, atomically: true, encoding: .utf8)
+                            }
+                        }
+                        // #endregion agent log
                         selectedIndex = airportCatalog.searchResults.isEmpty ? nil : 0
                         if !airportCatalog.searchResults.isEmpty {
                             proxy.scrollTo(0, anchor: .top)
@@ -201,6 +254,34 @@ struct SearchView: View {
                     }
                     .onKeyPress(.return) {
                         if let index = selectedIndex, index < airportCatalog.searchResults.count {
+                            // #region agent log
+                            let logPath = "/Users/robinnap/Documents/Coding/Aviary/Aviary/.cursor/debug.log"
+                            let airport = airportCatalog.searchResults[index]
+                            let logEntry: [String: Any] = [
+                                "timestamp": Int64(Date().timeIntervalSince1970 * 1000),
+                                "location": "RootSplitView.swift:202",
+                                "message": "airport selected via return key",
+                                "data": [
+                                    "airportIcao": airport.icao,
+                                    "airportName": airport.name,
+                                    "selectedIndex": index,
+                                    "searchResultsCount": airportCatalog.searchResults.count
+                                ],
+                                "sessionId": "debug-session",
+                                "runId": "run1",
+                                "hypothesisId": "E"
+                            ]
+                            if let jsonData = try? JSONSerialization.data(withJSONObject: logEntry),
+                               let jsonString = String(data: jsonData, encoding: .utf8) {
+                                if let fileHandle = FileHandle(forWritingAtPath: logPath) {
+                                    fileHandle.seekToEndOfFile()
+                                    fileHandle.write((jsonString + "\n").data(using: .utf8)!)
+                                    fileHandle.closeFile()
+                                } else {
+                                    try? (jsonString + "\n").write(toFile: logPath, atomically: true, encoding: .utf8)
+                                }
+                            }
+                            // #endregion agent log
                             withAnimation {
                                 selectedAirport = airportCatalog.searchResults[index]
                             }
@@ -214,6 +295,28 @@ struct SearchView: View {
         }
         .searchable(text: $searchText, prompt: "Search airports...")
         .onChange(of: searchText) { _, newValue in
+            // #region agent log
+            let logPath = "/Users/robinnap/Documents/Coding/Aviary/Aviary/.cursor/debug.log"
+            let logEntry: [String: Any] = [
+                "timestamp": Int64(Date().timeIntervalSince1970 * 1000),
+                "location": "RootSplitView.swift:216",
+                "message": "searchText changed",
+                "data": ["newValue": newValue, "currentResultsCount": airportCatalog.searchResults.count],
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "A,B,C,D"
+            ]
+            if let jsonData = try? JSONSerialization.data(withJSONObject: logEntry),
+               let jsonString = String(data: jsonData, encoding: .utf8) {
+                if let fileHandle = FileHandle(forWritingAtPath: logPath) {
+                    fileHandle.seekToEndOfFile()
+                    fileHandle.write((jsonString + "\n").data(using: .utf8)!)
+                    fileHandle.closeFile()
+                } else {
+                    try? (jsonString + "\n").write(toFile: logPath, atomically: true, encoding: .utf8)
+                }
+            }
+            // #endregion agent log
             airportCatalog.search(query: newValue)
         }
     }
