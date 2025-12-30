@@ -8,47 +8,13 @@
 import Foundation
 import Combine
 
-// #region agent log
-private func debugLog(_ message: String, data: [String: Any] = [:], hypothesisId: String = "") {
-    let logPath = "/Users/robinnap/Documents/Coding/Aviary/Aviary/.cursor/debug.log"
-    let logEntry: [String: Any] = [
-        "timestamp": Int64(Date().timeIntervalSince1970 * 1000),
-        "location": "AirportCatalog.swift",
-        "message": message,
-        "data": data,
-        "sessionId": "debug-session",
-        "runId": "run1",
-        "hypothesisId": hypothesisId
-    ]
-    if let jsonData = try? JSONSerialization.data(withJSONObject: logEntry),
-       let jsonString = String(data: jsonData, encoding: .utf8) {
-        if let fileHandle = FileHandle(forWritingAtPath: logPath) {
-            fileHandle.seekToEndOfFile()
-            fileHandle.write((jsonString + "\n").data(using: .utf8)!)
-            fileHandle.closeFile()
-        } else {
-            try? (jsonString + "\n").write(toFile: logPath, atomically: true, encoding: .utf8)
-        }
-    }
-}
-// #endregion agent log
-
 /// Service for searching and loading airport data
 @MainActor
 final class AirportCatalog: ObservableObject {
     static let shared = AirportCatalog()
     
     @Published private(set) var airports: [Airport] = []
-    @Published private(set) var searchResults: [Airport] = [] {
-        didSet {
-            // #region agent log
-            debugLog("searchResults updated", data: [
-                "count": searchResults.count,
-                "results": searchResults.prefix(3).map { ["icao": $0.icao, "name": $0.name] }
-            ], hypothesisId: "A,B,C,D")
-            // #endregion agent log
-        }
-    }
+    @Published private(set) var searchResults: [Airport] = []
     @Published private(set) var isLoading = false
     @Published private(set) var error: Error?
     
@@ -83,52 +49,20 @@ final class AirportCatalog: ObservableObject {
     
     /// Search airports by query (ICAO, IATA, name, or city)
     func search(query: String) {
-        // #region agent log
-        debugLog("search() called", data: ["query": query, "previousTaskExists": searchTask != nil], hypothesisId: "A,B,C,D")
-        // #endregion agent log
-        
-        let wasCancelled = searchTask != nil
         searchTask?.cancel()
-        
-        // #region agent log
-        if wasCancelled {
-            debugLog("previous searchTask cancelled", data: ["query": query], hypothesisId: "A,B")
-        }
-        // #endregion agent log
         
         let trimmed = query.trimmingCharacters(in: .whitespaces).lowercased()
         
         guard !trimmed.isEmpty else {
-            // #region agent log
-            debugLog("search() early return - empty query", data: ["query": query], hypothesisId: "D")
-            // #endregion agent log
             searchResults = []
             return
         }
         
-        // #region agent log
-        debugLog("clearing searchResults before new search", data: ["query": query], hypothesisId: "D")
-        // #endregion agent log
-        
-        let taskId = UUID().uuidString
         searchTask = Task {
-            // #region agent log
-            debugLog("Task started after debounce", data: ["query": query, "taskId": taskId], hypothesisId: "A,B,C")
-            // #endregion agent log
-            
             // Small delay for debouncing
             try? await Task.sleep(nanoseconds: 150_000_000)
             
-            // #region agent log
-            let isCancelledAfterSleep = Task.isCancelled
-            debugLog("Task after sleep - cancellation check", data: ["query": query, "taskId": taskId, "isCancelled": isCancelledAfterSleep], hypothesisId: "A,B")
-            // #endregion agent log
-            
             guard !Task.isCancelled else { return }
-            
-            // #region agent log
-            debugLog("Task filtering airports", data: ["query": query, "taskId": taskId, "airportsCount": airports.count], hypothesisId: "A,B,C")
-            // #endregion agent log
             
             let results = airports.filter { airport in
                 airport.icao.lowercased().contains(trimmed) ||
@@ -138,22 +72,9 @@ final class AirportCatalog: ObservableObject {
             }
             .prefix(25)
             
-            // #region agent log
-            let isCancelledAfterFilter = Task.isCancelled
-            debugLog("Task after filter - cancellation check", data: ["query": query, "taskId": taskId, "isCancelled": isCancelledAfterFilter, "resultsCount": results.count], hypothesisId: "A,B")
-            // #endregion agent log
-            
             guard !Task.isCancelled else { return }
             
-            // #region agent log
-            debugLog("Task updating searchResults", data: ["query": query, "taskId": taskId, "resultsCount": results.count], hypothesisId: "A,B,C")
-            // #endregion agent log
-            
             searchResults = Array(results)
-            
-            // #region agent log
-            debugLog("Task completed - searchResults set", data: ["query": query, "taskId": taskId], hypothesisId: "A,B,C")
-            // #endregion agent log
         }
     }
     
