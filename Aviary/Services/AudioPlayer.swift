@@ -8,6 +8,7 @@
 import Foundation
 import AVFoundation
 import Combine
+import MediaPlayer
 
 /// Audio player service for streaming ATC feeds
 @MainActor
@@ -49,9 +50,11 @@ final class AudioPlayer: ObservableObject {
     private var bufferObserver: NSKeyValueObservation?
     private var errorObserver: NSKeyValueObservation?
     private var timeControlObserver: NSKeyValueObservation?
+    private var nowPlayingInfo: [String: Any] = [:]
     
     private init() {
         setupAudioSession()
+        setupRemoteCommandCenter()
     }
     
     // MARK: - Public Methods
@@ -145,6 +148,9 @@ final class AudioPlayer: ObservableObject {
         // Start playback - isPlaying will be set to true when timeControlStatus changes to .playing
         player?.play()
         
+        // Update now playing info for lock screen and control center
+        updateNowPlayingInfo()
+        
         // Update last played timestamp
         feed.lastPlayedAt = Date()
     }
@@ -230,6 +236,9 @@ final class AudioPlayer: ObservableObject {
         
         // Start playback - isPlaying will be set to true when timeControlStatus changes to .playing
         player?.play()
+        
+        // Update now playing info for lock screen and control center
+        updateNowPlayingInfo()
     }
     
     /// Play directly from a URL (for testing)
@@ -280,6 +289,7 @@ final class AudioPlayer: ObservableObject {
         player?.pause()
         isPlaying = false
         statusMessage = "Paused"
+        updateNowPlayingInfo()
     }
     
     /// Resume playback
@@ -288,6 +298,7 @@ final class AudioPlayer: ObservableObject {
         player?.play()
         isPlaying = true
         statusMessage = "Live"
+        updateNowPlayingInfo()
     }
     
     /// Toggle play/pause
@@ -327,6 +338,12 @@ final class AudioPlayer: ObservableObject {
         currentLiveFeed = nil
         error = nil
         statusMessage = nil
+        
+        // Clear now playing info
+        #if os(iOS)
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        nowPlayingInfo = [:]
+        #endif
     }
     
     /// Set playback volume
@@ -341,11 +358,91 @@ final class AudioPlayer: ObservableObject {
         #if os(iOS)
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default, options: [.allowAirPlay, .allowBluetoothHFP])
+            // Configure for background playback with all necessary options
+            try session.setCategory(
+                .playback,
+                mode: .spokenAudio,
+                options: [.allowAirPlay, .allowBluetoothHFP, .allowBluetoothA2DP]
+            )
             try session.setActive(true)
+            print("AudioPlayer: Audio session configured for background playback")
         } catch {
             print("AudioPlayer: Failed to setup audio session: \(error)")
         }
+        #endif
+    }
+    
+    private func setupRemoteCommandCenter() {
+        #if os(iOS)
+        let commandCenter = MPRemoteCommandCenter.shared()
+        
+        // Play command
+        commandCenter.playCommand.addTarget { [weak self] _ in
+            guard let self = self else { return .commandFailed }
+            Task { @MainActor in
+                self.resume()
+            }
+            return .success
+        }
+        
+        // Pause command
+        commandCenter.pauseCommand.addTarget { [weak self] _ in
+            guard let self = self else { return .commandFailed }
+            Task { @MainActor in
+                self.pause()
+            }
+            return .success
+        }
+        
+        // Toggle play/pause
+        commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
+            guard let self = self else { return .commandFailed }
+            Task { @MainActor in
+                self.togglePlayback()
+            }
+            return .success
+        }
+        
+        // Stop command
+        commandCenter.stopCommand.addTarget { [weak self] _ in
+            guard let self = self else { return .commandFailed }
+            Task { @MainActor in
+                self.stop()
+            }
+            return .success
+        }
+        
+        // Enable the commands
+        commandCenter.playCommand.isEnabled = true
+        commandCenter.pauseCommand.isEnabled = true
+        commandCenter.togglePlayPauseCommand.isEnabled = true
+        commandCenter.stopCommand.isEnabled = true
+        
+        print("AudioPlayer: Remote command center configured")
+        #endif
+    }
+    
+    private func updateNowPlayingInfo() {
+        #if os(iOS)
+        var info = nowPlayingInfo
+        
+        if let feed = currentFeed {
+            info[MPMediaItemPropertyTitle] = feed.name
+            info[MPMediaItemPropertyArtist] = "Air Traffic Control"
+            info[MPMediaItemPropertyAlbumTitle] = feed.airportIcao
+        } else if let liveFeed = currentLiveFeed {
+            info[MPMediaItemPropertyTitle] = liveFeed.name
+            info[MPMediaItemPropertyArtist] = "Air Traffic Control"
+            info[MPMediaItemPropertyAlbumTitle] = liveFeed.icao
+        }
+        
+        // Set playback state
+        info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
+        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = 0.0
+        info[MPNowPlayingInfoPropertyIsLiveStream] = true
+        
+        nowPlayingInfo = info
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         #endif
     }
     
@@ -431,6 +528,7 @@ final class AudioPlayer: ObservableObject {
                 isPlaying = true
                 statusMessage = "Live"
                 print("AudioPlayer: Now playing audio")
+                updateNowPlayingInfo()
             } else {
                 print("AudioPlayer: TimeControl says playing but still connecting, waiting for readyToPlay...")
             }
