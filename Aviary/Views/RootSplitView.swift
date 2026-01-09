@@ -214,6 +214,13 @@ struct SearchView: View {
         }
         .searchable(text: $searchText, prompt: "Search airports...")
         .onChange(of: searchText) { _, newValue in
+            // Clear selectedAirport when user starts typing to show search results instead of detail view
+            if !newValue.isEmpty && selectedAirport != nil {
+                withAnimation {
+                    selectedAirport = nil
+                }
+            }
+            
             airportCatalog.search(query: newValue)
         }
     }
@@ -306,3 +313,4 @@ struct AirportRowView: View {
     RootSplitView()
         .modelContainer(for: [ATCFeed.self, FlightCacheEntry.self], inMemory: true)
 }
+

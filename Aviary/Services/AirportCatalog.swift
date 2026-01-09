@@ -64,13 +64,22 @@ final class AirportCatalog: ObservableObject {
             
             guard !Task.isCancelled else { return }
             
-            let results = airports.filter { airport in
+            // Filter matching airports
+            let matchingAirports = airports.filter { airport in
                 airport.icao.lowercased().contains(trimmed) ||
                 (airport.iata?.lowercased().contains(trimmed) ?? false) ||
                 airport.name.lowercased().contains(trimmed) ||
                 (airport.city?.lowercased().contains(trimmed) ?? false)
             }
-            .prefix(25)
+            
+            // Sort by relevance: exact matches first, then prefix matches, then substring matches
+            let sortedResults = matchingAirports.sorted { airport1, airport2 in
+                let score1 = relevanceScore(for: airport1, query: trimmed)
+                let score2 = relevanceScore(for: airport2, query: trimmed)
+                return score1 > score2
+            }
+            
+            let results = sortedResults.prefix(25)
             
             guard !Task.isCancelled else { return }
             
@@ -86,6 +95,56 @@ final class AirportCatalog: ObservableObject {
     /// Get airport by IATA code
     func airport(byIata iata: String) -> Airport? {
         airports.first { $0.iata?.uppercased() == iata.uppercased() }
+    }
+    
+    /// Calculate relevance score for an airport based on query
+    /// Higher score = more relevant (should appear first)
+    private func relevanceScore(for airport: Airport, query: String) -> Int {
+        var score = 0
+        let queryLower = query.lowercased()
+        
+        // Exact IATA match (highest priority)
+        if let iata = airport.iata?.lowercased(), iata == queryLower {
+            score += 1000
+        }
+        // Exact ICAO match
+        else if airport.icao.lowercased() == queryLower {
+            score += 900
+        }
+        // IATA starts with query
+        else if let iata = airport.iata?.lowercased(), iata.hasPrefix(queryLower) {
+            score += 800
+        }
+        // ICAO starts with query
+        else if airport.icao.lowercased().hasPrefix(queryLower) {
+            score += 700
+        }
+        // Name starts with query
+        else if airport.name.lowercased().hasPrefix(queryLower) {
+            score += 600
+        }
+        // City starts with query
+        else if let city = airport.city?.lowercased(), city.hasPrefix(queryLower) {
+            score += 500
+        }
+        // IATA contains query
+        else if let iata = airport.iata?.lowercased(), iata.contains(queryLower) {
+            score += 400
+        }
+        // ICAO contains query
+        else if airport.icao.lowercased().contains(queryLower) {
+            score += 300
+        }
+        // Name contains query
+        else if airport.name.lowercased().contains(queryLower) {
+            score += 200
+        }
+        // City contains query
+        else if let city = airport.city?.lowercased(), city.contains(queryLower) {
+            score += 100
+        }
+        
+        return score
     }
     
     // MARK: - Embedded Sample Data
@@ -143,4 +202,5 @@ final class AirportCatalog: ObservableObject {
         Airport(icao: "CYUL", iata: "YUL", name: "Montréal–Trudeau International Airport", city: "Montreal", country: "Canada", latitude: 45.4706, longitude: -73.7408, elevation: 118, timezone: "America/Toronto"),
     ]
 }
+
 
