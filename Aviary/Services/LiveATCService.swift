@@ -34,46 +34,129 @@ final class LiveATCService {
     /// - Returns: Array of discovered LiveATC feeds
     func fetchFeeds(for icao: String) async throws -> [LiveATCFeed] {
         let normalizedIcao = icao.uppercased()
-        
+
         // Check cache first
         if let cached = feedCache[normalizedIcao],
            let timestamp = cacheTimestamps[normalizedIcao],
            Date().timeIntervalSince(timestamp) < cacheValidityDuration {
             return cached
         }
-        
-        // Fetch from LiveATC search page
-        let searchURL = URL(string: "\(baseURL)/search/?icao=\(normalizedIcao)")!
-        
+
+        // Try scraping the LiveATC search page first
+        let scraped = await fetchFeedsViaScraping(icao: normalizedIcao)
+        if !scraped.isEmpty {
+            feedCache[normalizedIcao] = scraped
+            cacheTimestamps[normalizedIcao] = Date()
+            return scraped
+        }
+
+        // Scraping failed (bot protection / Cloudflare challenge) — fall back to
+        // probing known mount point patterns directly on the stream server
+        print("LiveATC: Scraping returned no feeds for \(normalizedIcao), falling back to direct probing")
+        let probed = await probeFeeds(for: normalizedIcao)
+        if !probed.isEmpty {
+            feedCache[normalizedIcao] = probed
+            cacheTimestamps[normalizedIcao] = Date()
+        }
+        return probed
+    }
+
+    /// Attempt to discover feeds by scraping the LiveATC search page
+    private func fetchFeedsViaScraping(icao: String) async -> [LiveATCFeed] {
+        let searchURL = URL(string: "\(baseURL)/search/?icao=\(icao)")!
+
         do {
             var request = URLRequest(url: searchURL)
             request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15", forHTTPHeaderField: "User-Agent")
             request.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
             request.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
             request.setValue("https://www.liveatc.net/", forHTTPHeaderField: "Referer")
-            
+            request.timeoutInterval = 15
+
             let (data, response) = try await session.data(for: request)
-            
+
             guard let httpResponse = response as? HTTPURLResponse,
                   httpResponse.statusCode == 200,
-                  let html = String(data: data, encoding: .utf8) else {
-                print("LiveATC: Failed to fetch search page for \(normalizedIcao)")
+                  let html = String(data: data, encoding: .utf8),
+                  html.contains(".pls") else {
+                print("LiveATC: Search page unavailable or returned bot-protection page for \(icao)")
                 return []
             }
-            
-            // Parse the HTML to find .pls links and feed names
-            let feeds = await parseAndResolvePlsLinks(from: html, icao: normalizedIcao)
-            
-            // Cache results
-            if !feeds.isEmpty {
-                feedCache[normalizedIcao] = feeds
-                cacheTimestamps[normalizedIcao] = Date()
-            }
-            
-            return feeds
+
+            return await parseAndResolvePlsLinks(from: html, icao: icao)
         } catch {
-            print("LiveATC fetch error: \(error)")
+            print("LiveATC scraping error: \(error)")
             return []
+        }
+    }
+
+    /// Discover feeds by probing known mount point patterns directly on the stream server.
+    /// This bypasses LiveATC's website entirely and works even when bot protection is active.
+    func probeFeeds(for icao: String) async -> [LiveATCFeed] {
+        let lower = icao.lowercased()
+
+        // Build candidate mount points from common LiveATC naming conventions
+        var candidates: [String] = []
+        let suffixes = [
+            "_twr", "_gnd", "_app", "_dep", "_ctr", "_atis", "_co", "_del", "_clc",
+            "_twr2", "_app2", "_gnd2", "_atis2", "_dep2", "_ctr2",
+            "_n_twr", "_s_twr", "_e_twr", "_w_twr",
+            "_n_app", "_s_app", "_e_app", "_w_app",
+            "_ne_twr", "_nw_twr", "_se_twr", "_sw_twr"
+        ]
+        for suffix in suffixes {
+            candidates.append(lower + suffix)
+        }
+        // US airports: also try without the leading K (e.g. lax_twr for KLAX)
+        if lower.hasPrefix("k") && lower.count == 4 {
+            let short = String(lower.dropFirst())
+            for suffix in suffixes {
+                candidates.append(short + suffix)
+            }
+        }
+
+        let feeds = await withTaskGroup(of: LiveATCFeed?.self) { group in
+            for mountPoint in candidates {
+                group.addTask { await self.probeMountPoint(mountPoint, icao: icao) }
+            }
+            var results: [LiveATCFeed] = []
+            for await feed in group {
+                if let feed { results.append(feed) }
+            }
+            return results
+        }
+
+        return feeds.sorted { $0.feedType.sortOrder < $1.feedType.sortOrder }
+    }
+
+    /// Probe a single mount point; returns a feed if the stream is live
+    private func probeMountPoint(_ mountPoint: String, icao: String) async -> LiveATCFeed? {
+        guard let url = URL(string: "https://d.liveatc.net/\(mountPoint)") else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "HEAD"
+        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15", forHTTPHeaderField: "User-Agent")
+        request.setValue("https://www.liveatc.net/", forHTTPHeaderField: "Referer")
+        request.timeoutInterval = 4
+
+        do {
+            let (_, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse,
+                  http.statusCode == 200 || http.statusCode == 302 else {
+                return nil
+            }
+            let feedType = determineFeedType(from: mountPoint, title: "")
+            let name = formatFeedName(from: mountPoint, icao: icao.uppercased())
+            return LiveATCFeed(
+                id: mountPoint,
+                icao: icao.uppercased(),
+                name: name,
+                feedType: feedType,
+                streamURL: url,
+                mountPoint: mountPoint
+            )
+        } catch {
+            return nil
         }
     }
     
