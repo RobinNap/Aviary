@@ -80,12 +80,13 @@ final class AudioPlayer: ObservableObject {
         statusMessage = "Connecting..."
         
         // Create the player item
-        // For HTTP Icecast streams, we need to handle them carefully
         let asset = AVURLAsset(url: url, options: [
             "AVURLAssetHTTPHeaderFieldsKey": [
-                "User-Agent": "AVPlayer/1.0 Aviary",
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
                 "Accept": "*/*",
-                "Icy-MetaData": "1"  // Request Icecast metadata
+                "Referer": "https://www.liveatc.net/",
+                "Origin": "https://www.liveatc.net",
+                "Icy-MetaData": "1"
             ]
         ])
         
@@ -174,8 +175,10 @@ final class AudioPlayer: ObservableObject {
         // Create the player item
         let asset = AVURLAsset(url: url, options: [
             "AVURLAssetHTTPHeaderFieldsKey": [
-                "User-Agent": "AVPlayer/1.0 Aviary",
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
                 "Accept": "*/*",
+                "Referer": "https://www.liveatc.net/",
+                "Origin": "https://www.liveatc.net",
                 "Icy-MetaData": "1"
             ]
         ])
@@ -254,8 +257,10 @@ final class AudioPlayer: ObservableObject {
         
         let asset = AVURLAsset(url: url, options: [
             "AVURLAssetHTTPHeaderFieldsKey": [
-                "User-Agent": "AVPlayer/1.0 Aviary",
-                "Accept": "*/*"
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+                "Accept": "*/*",
+                "Referer": "https://www.liveatc.net/",
+                "Origin": "https://www.liveatc.net"
             ]
         ])
         

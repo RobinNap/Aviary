@@ -49,6 +49,8 @@ final class LiveATCService {
             var request = URLRequest(url: searchURL)
             request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15", forHTTPHeaderField: "User-Agent")
             request.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
+            request.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
+            request.setValue("https://www.liveatc.net/", forHTTPHeaderField: "Referer")
             
             let (data, response) = try await session.data(for: request)
             
@@ -81,23 +83,23 @@ final class LiveATCService {
         var processedMounts: Set<String> = []
         
         // Find all .pls links in the HTML
-        // Pattern: href="/play/something.pls" with associated feed name nearby
-        let plsPattern = #"href\s*=\s*[\"'](/play/([^\"']+)\.pls)[\"']"#
-        
+        // Handles both relative (/play/something.pls) and absolute (https://www.liveatc.net/play/something.pls) URLs
+        let plsPattern = #"href\s*=\s*[\"'](?:https?://(?:www\.)?liveatc\.net)?(/play/([^\"'?#]+)\.pls)[\"']"#
+
         guard let regex = try? NSRegularExpression(pattern: plsPattern, options: .caseInsensitive) else {
             return feeds
         }
-        
+
         let range = NSRange(html.startIndex..., in: html)
         let matches = regex.matches(in: html, options: [], range: range)
-        
+
         // Process each .pls link found
         for match in matches {
             guard let pathRange = Range(match.range(at: 1), in: html),
                   let nameRange = Range(match.range(at: 2), in: html) else {
                 continue
             }
-            
+
             let plsPath = String(html[pathRange])
             let plsName = String(html[nameRange])
             
@@ -122,7 +124,10 @@ final class LiveATCService {
         
         do {
             var request = URLRequest(url: plsURL)
-            request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+            request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15", forHTTPHeaderField: "User-Agent")
+            request.setValue("text/plain,*/*;q=0.9", forHTTPHeaderField: "Accept")
+            request.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
+            request.setValue("https://www.liveatc.net/", forHTTPHeaderField: "Referer")
             request.timeoutInterval = 10
             
             let (data, response) = try await session.data(for: request)
@@ -169,13 +174,25 @@ final class LiveATCService {
     
     /// Extract stream URL from .pls file content
     private func extractStreamURL(from plsContent: String) -> URL? {
-        // Look for File1=http://...
+        // Look for FileN= entries (File1, File2, etc.) and return the first valid URL
         let lines = plsContent.components(separatedBy: .newlines)
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.lowercased().hasPrefix("file1=") {
-                let urlString = String(trimmed.dropFirst(6)).trimmingCharacters(in: .whitespaces)
-                return URL(string: urlString)
+            let lower = trimmed.lowercased()
+            // Match File1=, File2=, etc.
+            if lower.hasPrefix("file") && lower.contains("=") {
+                let parts = trimmed.split(separator: "=", maxSplits: 1)
+                guard parts.count == 2 else { continue }
+                let key = parts[0].lowercased()
+                guard key.hasPrefix("file"), key.dropFirst(4).allSatisfy(\.isNumber) else { continue }
+                var urlString = String(parts[1]).trimmingCharacters(in: .whitespaces)
+                // Upgrade HTTP stream URLs to HTTPS
+                if urlString.lowercased().hasPrefix("http://d.liveatc.net") {
+                    urlString = "https" + urlString.dropFirst(4)
+                }
+                if let url = URL(string: urlString) {
+                    return url
+                }
             }
         }
         return nil
@@ -295,13 +312,14 @@ final class LiveATCService {
         do {
             var request = URLRequest(url: feed.streamURL)
             request.httpMethod = "HEAD"
-            request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+            request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15", forHTTPHeaderField: "User-Agent")
+            request.setValue("https://www.liveatc.net/", forHTTPHeaderField: "Referer")
             request.timeoutInterval = 5
-            
+
             let (_, response) = try await session.data(for: request)
-            
+
             if let httpResponse = response as? HTTPURLResponse {
-                return httpResponse.statusCode == 200 || 
+                return httpResponse.statusCode == 200 ||
                        httpResponse.statusCode == 302 ||
                        httpResponse.statusCode < 400
             }
@@ -309,6 +327,14 @@ final class LiveATCService {
         } catch {
             return false
         }
+    }
+
+    /// Upgrade an HTTP LiveATC stream URL to HTTPS, used when migrating saved feeds
+    static func upgradeStreamURL(_ urlString: String) -> String {
+        if urlString.lowercased().hasPrefix("http://d.liveatc.net") {
+            return "https" + urlString.dropFirst(4)
+        }
+        return urlString
     }
     
     /// Clear the feed cache

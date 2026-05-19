@@ -59,7 +59,7 @@ final class ATCFeed {
     var lastPlayedAt: Date?
     
     var streamURL: URL? {
-        URL(string: streamURLString)
+        URL(string: LiveATCService.upgradeStreamURL(streamURLString))
     }
     
     var feedType: ATCFeedType {
